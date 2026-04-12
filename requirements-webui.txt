@@ -1,0 +1,6 @@
+streamlit==1.18.0
+streamlit-drawable-canvas>=0.9.3
+pillow>=10.0
+pandas>=2.0
+plotly>=5.0
+protobuf==3.19.6

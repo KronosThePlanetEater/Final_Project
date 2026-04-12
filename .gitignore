@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+output/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+.env
+sam-audio
