@@ -252,6 +252,7 @@ def ensure_session_defaults() -> None:
     st.session_state.setdefault("single_tracker_preset", "dynamic_optical_flow")
     st.session_state.setdefault("comparison_tracker_variants", ["dynamic_optical_flow", "full_sam"])
     st.session_state.setdefault("comparison_audio_model_sizes", ["small-tv", "base-tv"])
+    st.session_state.setdefault("audio_precision", "auto")
     st.session_state.setdefault("mask_preview", None)
     st.session_state.setdefault("mask_preview_signature", None)
     st.session_state.setdefault("observed_job_id", None)
@@ -331,6 +332,7 @@ def build_job_config(video_name: str) -> Dict[str, Any]:
         "audio_model_sizes": st.session_state.get("comparison_audio_model_sizes", []),
         "audio_model_id": st.session_state.get("audio_model_id_override") or None,
         "audio_device": st.session_state.get("audio_device") or None,
+        "audio_precision": st.session_state.get("audio_precision", "auto"),
         "predict_spans": bool(st.session_state.get("predict_spans", False)),
         "reranking_candidates": int(st.session_state.get("reranking_candidates", 1) or 1),
         "allow_placeholder_audio": bool(st.session_state.get("allow_placeholder_audio", False)),
@@ -411,6 +413,7 @@ def render_audio_controls() -> None:
     )
     st.session_state["audio_model_id_override"] = selected_model_override
     st.text_input("Audio device override", value="", key="audio_device", help="Optional device override such as cuda or cpu. GPU is usually much faster, while CPU is slower but can be safer for memory-constrained systems.")
+    st.selectbox("Audio precision", ["auto", "fp32", "bf16", "fp16"], key="audio_precision", help="Controls SAM-Audio inference precision. Auto uses bf16 on newer CUDA GPUs, fp16 on older CUDA GPUs, and fp32 elsewhere. Lower precision can reduce VRAM use and sometimes improve speed, but may affect stability or output quality.")
     st.checkbox("Predict spans", value=False, key="predict_spans", help="Lets SAM-Audio predict when the target sound is active in time. This can help intermittent sounds, but for continuous speech it may not always improve results.")
     st.number_input("Reranking candidates", min_value=1, max_value=8, value=1, step=1, key="reranking_candidates", help="How many candidate separations SAM-Audio considers before picking one. Higher values may improve quality but increase runtime and memory use.")
     st.checkbox("Allow placeholder audio", value=False, key="allow_placeholder_audio", help="Smoke-test mode. This does not perform real audio separation, so it should not be used for final evaluation metrics.")
@@ -649,6 +652,7 @@ def render_results_panel(job_state: Optional[Dict[str, Any]]) -> None:
         metrics_cols[3].metric("Failure count", tracking_summary.get("failure_count", "-"))
         metrics_cols[4].metric("Mean IoU", evaluation_summary.get("mean_iou", "-"))
         metrics_cols[5].metric("SI-SDR", evaluation_summary.get("si_sdr", "-"))
+        st.caption(f"Audio precision: requested {audio_summary.get('requested_audio_precision', '-')}, effective {audio_summary.get('effective_audio_precision', '-')}")
         if manifest:
             st.markdown("**Run Manifest**")
             manifest_rows = []
@@ -671,10 +675,11 @@ def render_results_panel(job_state: Optional[Dict[str, Any]]) -> None:
                     "Run": entry["display_label"],
                     "Tracker": entry["tracker_variant_label"],
                     "Audio": entry["audio_model_size"],
+                    "Precision": entry_audio.get("effective_audio_precision", entry_audio.get("requested_audio_precision", "-")),
                     "Tracking time": format_seconds(entry_tracking.get("pure_time")),
                     "SAM-Audio time": format_seconds(entry_audio.get("runtime_seconds")),
                 })
-            render_html_table(manifest_rows, columns=["Run", "Tracker", "Audio", "Tracking time", "SAM-Audio time"])
+            render_html_table(manifest_rows, columns=["Run", "Tracker", "Audio", "Precision", "Tracking time", "SAM-Audio time"])
         st.markdown("**Tracking Summary**")
         st.json(tracking_summary)
         st.markdown("**Evaluation Summary**")

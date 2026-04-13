@@ -784,6 +784,7 @@ def _run_job(job_id: str, config: Dict[str, Any]) -> None:
                     model_id=config.get("audio_model_id"),
                     prompt_mode="visual",
                     device=config.get("audio_device"),
+                    audio_precision=config.get("audio_precision", "auto"),
                     predict_spans=config.get("predict_spans", False),
                     reranking_candidates=config.get("reranking_candidates", 1),
                     allow_placeholder=config.get("allow_placeholder_audio", False),

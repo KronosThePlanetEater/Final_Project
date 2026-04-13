@@ -14,6 +14,7 @@ from progress_utils import emit_progress
 
 
 VALID_MODEL_SIZES = {"small", "base", "large", "small-tv", "base-tv", "large-tv"}
+VALID_AUDIO_PRECISIONS = {"auto", "fp32", "bf16", "fp16"}
 MODEL_SIZE_TO_ID = {
     "small": "facebook/sam-audio-small",
     "base": "facebook/sam-audio-base",
@@ -266,6 +267,31 @@ def lazy_import_sam_audio():
     return torch, torchaudio, SAMAudio, SAMAudioProcessor
 
 
+def resolve_audio_precision(torch_module, device: str, audio_precision: str) -> Tuple[Optional[Any], Optional[str]]:
+    if audio_precision not in VALID_AUDIO_PRECISIONS:
+        raise ValueError(f"audio_precision must be one of {sorted(VALID_AUDIO_PRECISIONS)}")
+
+    if device != "cuda":
+        return None, None
+
+    if audio_precision == "fp32":
+        return None, None
+    if audio_precision == "fp16":
+        return torch_module.float16, "fp16"
+    if audio_precision == "bf16":
+        return torch_module.bfloat16, "bf16"
+
+    if torch_module.cuda.is_available():
+        try:
+            major = torch_module.cuda.get_device_properties(0).major
+        except Exception:
+            major = 0
+        if major >= 8:
+            return torch_module.bfloat16, "bf16"
+        return torch_module.float16, "fp16"
+    return None, None
+
+
 def normalize_audio_tensor(audio_tensor):
     if isinstance(audio_tensor, list):
         if not audio_tensor:
@@ -302,10 +328,11 @@ def run_sam_audio_visual_prompt(
     mask_bundle: Dict[str, Any],
     model_id: str,
     device: str,
+    audio_precision: str,
     predict_spans: bool,
     reranking_candidates: int,
     output_root: Path,
-) -> Tuple[str, str, int]:
+) -> Tuple[str, str, int, str]:
     torch, torchaudio, SAMAudio, SAMAudioProcessor = lazy_import_sam_audio()
 
     model = None
@@ -320,6 +347,7 @@ def run_sam_audio_visual_prompt(
         model = SAMAudio.from_pretrained(model_id)
         processor = SAMAudioProcessor.from_pretrained(model_id)
         model = model.eval().to(device)
+        autocast_dtype, effective_precision = resolve_audio_precision(torch, device, audio_precision)
 
         frames = load_video_frames(video_path, expected_count=mask_bundle["masks"].shape[0])
         video_tensor = video_frames_to_tensor(torch, frames)
@@ -332,11 +360,19 @@ def run_sam_audio_visual_prompt(
         ).to(device)
 
         with torch.inference_mode():
-            result = model.separate(
-                batch,
-                predict_spans=predict_spans,
-                reranking_candidates=reranking_candidates,
-            )
+            if autocast_dtype is None:
+                result = model.separate(
+                    batch,
+                    predict_spans=predict_spans,
+                    reranking_candidates=reranking_candidates,
+                )
+            else:
+                with torch.autocast(device_type="cuda", dtype=autocast_dtype):
+                    result = model.separate(
+                        batch,
+                        predict_spans=predict_spans,
+                        reranking_candidates=reranking_candidates,
+                    )
 
         sample_rate = int(processor.audio_sampling_rate)
         target_audio_path = output_root / "target.wav"
@@ -347,7 +383,7 @@ def run_sam_audio_visual_prompt(
         torchaudio.save(str(residual_audio_path), residual_tensor, sample_rate)
         del target_tensor
         del residual_tensor
-        return str(target_audio_path), str(residual_audio_path), sample_rate
+        return str(target_audio_path), str(residual_audio_path), sample_rate, (effective_precision or "fp32")
     finally:
         result = None
         batch = None
@@ -369,6 +405,7 @@ def run_audio_pipeline(
     model_id: Optional[str] = None,
     prompt_mode: str = "visual",
     device: Optional[str] = None,
+    audio_precision: str = "auto",
     predict_spans: bool = False,
     reranking_candidates: int = 1,
     allow_placeholder: bool = False,
@@ -380,6 +417,8 @@ def run_audio_pipeline(
         raise ValueError("This pipeline currently supports only prompt_mode='visual'.")
     if reranking_candidates < 1:
         raise ValueError("reranking_candidates must be >= 1.")
+    if audio_precision not in VALID_AUDIO_PRECISIONS:
+        raise ValueError(f"audio_precision must be one of {sorted(VALID_AUDIO_PRECISIONS)}.")
 
     ensure_standard_directories()
     emit_progress(progress_callback, stage="audio", stage_progress=0.0, status="running", clip_id=clip_id, message="Preparing SAM-Audio inputs.")
@@ -418,6 +457,7 @@ def run_audio_pipeline(
         target_video_path: Optional[str] = None
         residual_video_path: Optional[str] = None
         sample_rate: Optional[int] = None
+        effective_audio_precision = "fp32"
 
         if allow_placeholder:
             backend = "placeholder_passthrough"
@@ -428,12 +468,13 @@ def run_audio_pipeline(
             extract_audio_from_video(str(resolved_video_path), residual_audio_path, ffmpeg_bin=ffmpeg_bin)
             sample_rate = 16000
         else:
-            emit_progress(progress_callback, stage="audio", stage_progress=0.45, status="running", clip_id=clip_id, message="Running SAM-Audio separation.", stats={"model_id": resolved_model_id, "device": selected_device})
-            target_audio_path, residual_audio_path, sample_rate = run_sam_audio_visual_prompt(
+            emit_progress(progress_callback, stage="audio", stage_progress=0.45, status="running", clip_id=clip_id, message="Running SAM-Audio separation.", stats={"model_id": resolved_model_id, "device": selected_device, "audio_precision": audio_precision})
+            target_audio_path, residual_audio_path, sample_rate, effective_audio_precision = run_sam_audio_visual_prompt(
                 video_path=str(resolved_video_path),
                 mask_bundle=mask_bundle,
                 model_id=resolved_model_id,
                 device=selected_device,
+                audio_precision=audio_precision,
                 predict_spans=predict_spans,
                 reranking_candidates=reranking_candidates,
                 output_root=output_root,
@@ -455,6 +496,8 @@ def run_audio_pipeline(
             "model_size": normalized_model_size,
             "model_id": resolved_model_id,
             "device": selected_device,
+            "requested_audio_precision": audio_precision,
+            "effective_audio_precision": effective_audio_precision,
             "predict_spans": bool(predict_spans),
             "reranking_candidates": int(reranking_candidates),
             "video_path": str(resolved_video_path),
@@ -515,6 +558,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--device", default=None, help="Torch device override, e.g. cuda, cpu, or mps.")
     parser.add_argument(
+        "--audio-precision",
+        default="auto",
+        choices=sorted(VALID_AUDIO_PRECISIONS),
+        help="Precision mode for SAM-Audio inference. Auto chooses bf16 on newer CUDA GPUs, fp16 on older CUDA GPUs, and fp32 elsewhere.",
+    )
+    parser.add_argument(
         "--predict-spans",
         action="store_true",
         help="Enable SAM-Audio span prediction during separation.",
@@ -551,6 +600,7 @@ if __name__ == "__main__":
         model_id=args.model_id,
         prompt_mode=args.prompt_mode,
         device=args.device,
+        audio_precision=args.audio_precision,
         predict_spans=args.predict_spans,
         reranking_candidates=args.reranking_candidates,
         allow_placeholder=args.allow_placeholder,
