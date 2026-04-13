@@ -16,8 +16,7 @@ Local pipeline for:
 
 ## Before You Start
 - Do **not** copy `.venv` between Windows and Linux.
-- Do **not** copy a Linux Conda env such as `.conda/` between machines or containers.
-- If you move the project to another machine, copy the project files and recreate the environment on that machine.
+- If you move the project to another machine, copy the project files and recreate `.venv` on that machine.
 - Recommended local model layout:
   - `sam_audio_models/small-tv/checkpoint.pt`
   - `sam_audio_models/small-tv/config.json`
@@ -123,46 +122,26 @@ singularity run --nv /path/to/pytorch:24.07-py3.sif
 
 After this, the prompt changes to `Singularity>` and that same terminal is now inside the container.
 
-### 3. Create and activate a project-local Conda environment
-Use a project-local prefix such as `.conda` instead of `python -m venv`. This avoids the missing `python3-venv`
-problem inside some containers.
-
-If `conda` is not installed in the container, install Miniconda or Mambaforge in your home directory first, then
-return to these commands from a new `Singularity>` shell.
-
-If `conda` is already available in the container or your shell:
-
+### 3. Create and activate a virtual environment
 ```bash
-conda env create --prefix ./.conda -f environment-linux.yml
-conda activate /path/to/Final_Project/.conda
+python3 -m venv .venv
+source .venv/bin/activate
 python -m pip install --upgrade pip
 ```
 
-If `conda activate` is not available yet in the current shell, initialize it first:
-
-```bash
-source ~/miniconda3/etc/profile.d/conda.sh
-conda env create --prefix ./.conda -f environment-linux.yml
-conda activate /path/to/Final_Project/.conda
-python -m pip install --upgrade pip
-```
-
-Keep one environment per container line when possible. For example, recreate `.conda` if you switch from
-`pytorch:24.07-py3.sif` to `pytorch:25.10-py3.sif`.
-
-### 4. Core and UI dependencies
-`environment-linux.yml` already installs both `requirements.txt` and `requirements-webui.txt`.
-
-This project pins `streamlit==1.18.0`, which also requires `altair<5`. `requirements-webui.txt` already includes that pin.
-
-If you later update either requirements file, refresh the active environment with:
-
+### 4. Install core project dependencies
 ```bash
 python -m pip install -r requirements.txt
+```
+
+### 5. Install UI dependencies
+This project pins `streamlit==1.18.0`, which also requires `altair<5`. `requirements-webui.txt` already includes that pin.
+
+```bash
 python -m pip install -r requirements-webui.txt
 ```
 
-### 5. Install PyTorch
+### 6. Install PyTorch
 Install the PyTorch build that matches the container you launched, not the host shell outside the container. Example:
 
 ```bash
@@ -183,7 +162,7 @@ Container examples:
 - `pytorch:24.07-py3.sif` ships CUDA `12.5.1`, so `cu124` is usually the closest stable PyTorch wheel family.
 - `pytorch:25.08-py3.sif` and `pytorch:25.10-py3.sif` ship CUDA `13.0.0`; use those only if you intentionally want a CUDA 13 stack.
 
-### 6. Install SAM2
+### 7. Install SAM2
 If the repo contains `sam2/`:
 
 ```bash
@@ -194,7 +173,7 @@ cd ..
 
 Otherwise clone/download it first, then run the same install command.
 
-### 7. Install SAM-Audio
+### 8. Install SAM-Audio
 If the repo contains `sam-audio/`:
 
 ```bash
@@ -208,7 +187,7 @@ Otherwise clone/download it first, then run the same install command.
 If `sam-audio` tries to replace your already-correct `torchcodec` install, reinstall `torchcodec` from the same
 PyTorch index after the editable install.
 
-### 8. Confirm ffmpeg
+### 9. Confirm ffmpeg
 The project checks in this order:
 1. explicit `--ffmpeg-bin` or UI override
 2. `tools/ffmpeg/linux/ffmpeg`
@@ -219,12 +198,12 @@ Recommended Linux options:
 - use `tools/ffmpeg/linux/ffmpeg`, or
 - install system `ffmpeg` with `apt`
 
-### 9. Optional Hugging Face login
+### 10. Optional Hugging Face login
 ```bash
 huggingface-cli login
 ```
 
-### 10. Validate the environment
+### 11. Validate the environment
 ```bash
 python -c "import cv2, numpy, scipy, pandas, PIL, matplotlib; print('base deps ok')"
 python -c "import torch, torchvision, torchaudio; print('torch ok')"
@@ -247,10 +226,9 @@ Copy these if you want to avoid re-downloading large assets:
 
 Do **not** copy:
 - `.venv/`
-- `.conda/`
 
 ## Running The Web UI
-From an activated environment:
+From an activated virtual environment:
 
 ```powershell
 streamlit run webui.py
