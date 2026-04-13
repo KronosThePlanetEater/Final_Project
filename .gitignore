@@ -8,4 +8,3 @@ output/*
 *.ckpt
 *.safetensors
 .env
-sam-audio
