@@ -2,6 +2,7 @@ import argparse
 import gc
 import json
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -187,25 +188,71 @@ def choose_device(device: Optional[str]) -> str:
     return "cpu"
 
 
-def load_video_frames(video_path: str, expected_count: int) -> List[np.ndarray]:
+def load_video_frames(
+    video_path: str,
+    expected_count: int,
+    expected_height: Optional[int] = None,
+    expected_width: Optional[int] = None,
+) -> np.ndarray:
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         raise RuntimeError(f"Failed to open video for frame loading: {video_path}")
 
-    frames: List[np.ndarray] = []
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-        frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-    cap.release()
+    stacked_frames: Optional[np.ndarray] = None
+    loaded_count = 0
+    try:
+        for frame_index in range(expected_count):
+            try:
+                ret, frame = cap.read()
+            except SystemError as exc:
+                raise RuntimeError(
+                    "OpenCV failed while decoding video frames for SAM-Audio. "
+                    "This usually means the system ran out of RAM while loading the full video prompt. "
+                    "Try lowering target resolution, reducing max frames, or running fewer variants at once."
+                ) from exc
 
-    if len(frames) != expected_count:
-        raise RuntimeError(
-            f"Video frame count ({len(frames)}) does not match mask frame count ({expected_count}). "
-            "Use a prepared video clip that exactly matches the tracker segment."
-        )
-    return frames
+            if not ret or frame is None:
+                break
+
+            if stacked_frames is None:
+                frame_height, frame_width = frame.shape[:2]
+                if expected_height is not None and frame_height != expected_height:
+                    raise RuntimeError(
+                        f"Decoded video height ({frame_height}) does not match expected height ({expected_height})."
+                    )
+                if expected_width is not None and frame_width != expected_width:
+                    raise RuntimeError(
+                        f"Decoded video width ({frame_width}) does not match expected width ({expected_width})."
+                    )
+                try:
+                    stacked_frames = np.empty((expected_count, frame_height, frame_width, 3), dtype=np.uint8)
+                except MemoryError as exc:
+                    raise RuntimeError(
+                        "Unable to allocate RAM for SAM-Audio video frames. "
+                        "Try lowering target resolution, reducing max frames, or running fewer variants at once."
+                    ) from exc
+
+            try:
+                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            except MemoryError as exc:
+                raise RuntimeError(
+                    "Ran out of RAM while converting video frames for SAM-Audio. "
+                    "Try lowering target resolution, reducing max frames, or running fewer variants at once."
+                ) from exc
+
+            stacked_frames[frame_index] = rgb_frame
+            loaded_count += 1
+
+        if loaded_count != expected_count:
+            raise RuntimeError(
+                f"Video frame count ({loaded_count}) does not match mask frame count ({expected_count}). "
+                "Use a prepared video clip that exactly matches the tracker segment."
+            )
+        if stacked_frames is None:
+            raise RuntimeError("No video frames were loaded for SAM-Audio visual prompting.")
+        return stacked_frames
+    finally:
+        cap.release()
 
 
 def infer_frame_span(frame_names: Optional[List[str]]) -> Optional[Tuple[int, int]]:
@@ -259,6 +306,80 @@ def lazy_import_sam_audio():
         import torch
         import torchaudio
         from sam_audio import SAMAudio, SAMAudioProcessor
+    except (OSError, RuntimeError) as exc:
+        error_text = str(exc)
+        shared_library_failure = any(
+            token in error_text.lower()
+            for token in ("torchcodec", "libtorchcodec", "libnvrtc", "could not load")
+        )
+        if not shared_library_failure:
+            raise
+
+        torch_version = None
+        torchcodec_version = None
+        install_hint = None
+        try:
+            import torch
+
+            torch_version = getattr(torch, "__version__", None)
+            version_core, build_suffix = (torch_version.split("+", 1) + [None])[:2] if torch_version else (None, None)
+            version_parts = version_core.split(".") if version_core else []
+            if len(version_parts) >= 2 and version_parts[0] == "2":
+                torchcodec_version = f"0.{version_parts[1]}"
+            if build_suffix == "cpu":
+                install_hint = (
+                    f"python -m pip install --force-reinstall torchcodec=={torchcodec_version}.* "
+                    "--index-url https://download.pytorch.org/whl/cpu"
+                )
+            elif build_suffix and build_suffix.startswith("cu"):
+                install_hint = (
+                    f"python -m pip install --force-reinstall torchcodec=={torchcodec_version}.* "
+                    f"--index-url https://download.pytorch.org/whl/{build_suffix}"
+                )
+        except Exception:
+            torch_version = None
+            install_hint = None
+
+        message_lines = [
+            "SAM-Audio failed during import because TorchCodec could not load its shared libraries.",
+            "This is usually a Linux environment mismatch, not an ffmpeg-path problem in this repo.",
+            "",
+            f"Original error: {error_text}",
+        ]
+        if torch_version:
+            message_lines.append(f"Detected torch build: {torch_version}")
+        message_lines.extend(
+            [
+                "",
+                "Most often this happens when PyTorch was installed from one PyTorch wheel index",
+                "but `torchcodec` was later installed from a different/default index, so it expects",
+                "a different CUDA runtime such as `libnvrtc.so.13`.",
+                "",
+                "Fix on Linux:",
+                "1. Reinstall `torchcodec` from the same PyTorch wheel index used for `torch`.",
+                "2. If you are on a CPU-only environment, use the PyTorch CPU wheel index instead.",
+            ]
+        )
+        if install_hint:
+            message_lines.extend(["", "Example reinstall command:", install_hint])
+        else:
+            message_lines.extend(
+                [
+                    "",
+                    "Example reinstall pattern:",
+                    "python -m pip install --force-reinstall torchcodec --index-url https://download.pytorch.org/whl/<matching-cuXXX-or-cpu>",
+                ]
+            )
+        if sys.platform.startswith("linux"):
+            message_lines.extend(
+                [
+                    "",
+                    "After reinstalling, validate with:",
+                    "python -c \"import torch, torchcodec; print(torch.__version__, torchcodec.__version__)\"",
+                    "python -c \"import sam_audio; print('sam_audio ok')\"",
+                ]
+            )
+        raise RuntimeError("\n".join(message_lines)) from exc
     except ImportError as exc:
         raise RuntimeError(
             "The official sam_audio package is not installed. Install the facebookresearch/sam-audio repo "
@@ -305,11 +426,10 @@ def normalize_audio_tensor(audio_tensor):
     return tensor.to(dtype=tensor.dtype).float()
 
 
-def video_frames_to_tensor(torch_module, frames: List[np.ndarray]):
-    if not frames:
+def video_frames_to_tensor(torch_module, frames: np.ndarray):
+    if frames.size == 0:
         raise RuntimeError("No video frames were loaded for SAM-Audio visual prompting.")
-    stacked = np.stack(frames, axis=0)
-    return torch_module.from_numpy(stacked).permute(0, 3, 1, 2).contiguous()
+    return torch_module.from_numpy(frames).permute(0, 3, 1, 2).contiguous()
 
 
 def mask_stack_to_video_tensor(torch_module, masks: np.ndarray):
@@ -349,7 +469,12 @@ def run_sam_audio_visual_prompt(
         model = model.eval().to(device)
         autocast_dtype, effective_precision = resolve_audio_precision(torch, device, audio_precision)
 
-        frames = load_video_frames(video_path, expected_count=mask_bundle["masks"].shape[0])
+        frames = load_video_frames(
+            video_path,
+            expected_count=mask_bundle["masks"].shape[0],
+            expected_height=mask_bundle["masks"].shape[1],
+            expected_width=mask_bundle["masks"].shape[2],
+        )
         video_tensor = video_frames_to_tensor(torch, frames)
         mask_tensor = mask_stack_to_video_tensor(torch, mask_bundle["masks"])
         masked_videos = processor.mask_videos([video_tensor], [mask_tensor])

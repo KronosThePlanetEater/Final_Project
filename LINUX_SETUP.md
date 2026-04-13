@@ -17,6 +17,17 @@ Copy these folders/files into the Linux machine:
 - `tools/ffmpeg/linux/ffmpeg` if you want a repo-local Linux ffmpeg binary
 
 Do **not** copy `.venv/` from Windows.
+Do **not** copy a Linux Conda environment such as `.conda/` between machines or containers.
+
+## Enter the container
+
+If your lab machine provides NVIDIA PyTorch Singularity images, enter the container first:
+
+```bash
+singularity run --nv /path/to/pytorch:24.07-py3.sif
+```
+
+Once the prompt changes to `Singularity>`, you are already inside the container in that same terminal.
 
 ## System packages
 
@@ -24,35 +35,69 @@ Install Ubuntu packages first:
 
 ```bash
 sudo apt update
-sudo apt install -y python3 python3-venv python3-pip ffmpeg build-essential git pkg-config libgl1 libglib2.0-0
+sudo apt install -y ffmpeg build-essential git pkg-config libgl1 libglib2.0-0
 ```
 
 Notes:
 - `ffmpeg` is the default Linux choice.
 - If you prefer a repo-local binary, place it at `tools/ffmpeg/linux/ffmpeg`.
 - `libgl1` and `libglib2.0-0` help OpenCV imports work on Ubuntu.
+- Some containers do not include `python3-venv`, so this guide uses Conda instead of `python -m venv`.
 
 ## Create the Linux environment
+
+If `conda` is not installed in the container, install Miniconda or Mambaforge in your home directory first, then
+start a new `Singularity>` shell and continue.
 
 From the project root:
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
+conda env create --prefix ./.conda -f environment-linux.yml
+conda activate /path/to/Final_Project/.conda
 python -m pip install --upgrade pip
+```
+
+If `conda activate` is not available in the current shell, initialize it first:
+
+```bash
+source ~/miniconda3/etc/profile.d/conda.sh
+conda env create --prefix ./.conda -f environment-linux.yml
+conda activate /path/to/Final_Project/.conda
+```
+
+Keep one Conda environment per container line when possible. Recreate `.conda` if you switch to a different
+container release such as `pytorch:25.10-py3.sif`.
+
+`environment-linux.yml` installs both `requirements.txt` and `requirements-webui.txt` through pip. If you edit either
+requirements file later, refresh the environment with:
+
+```bash
 python -m pip install -r requirements.txt
 python -m pip install -r requirements-webui.txt
 ```
 
 ## Install PyTorch for your CUDA version
 
-Install Linux CUDA wheels that match the target machine. Example shape:
+Install Linux CUDA wheels that match the container you launched. Example shape:
 
 ```bash
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
 ```
 
-If the CUDA version is different on the Ubuntu machine, use the matching PyTorch index instead.
+If the container line is different, use the matching PyTorch index instead.
+
+Install `torchcodec` from that same PyTorch wheel index before installing `sam-audio`:
+
+```bash
+pip install torchcodec==0.11.* --index-url https://download.pytorch.org/whl/cu124
+```
+
+Do not rely on a bare `pip install torchcodec` on Linux after a CUDA-specific PyTorch install. That can pull a
+different TorchCodec CUDA wheel and lead to import errors like `Could not load libtorchcodec` or `libnvrtc.so.13`.
+
+Container examples:
+- `pytorch:24.07-py3.sif` ships CUDA `12.5.1`, so `cu124` is a reasonable PyTorch wheel target.
+- `pytorch:25.08-py3.sif` and `pytorch:25.10-py3.sif` ship CUDA `13.0.0`. Use those only if you intentionally want a CUDA 13 stack.
 
 ## Install SAM2
 
@@ -85,6 +130,9 @@ cd ..
 ```
 
 If not, clone it first on Linux, then install it.
+
+If the editable install overwrites your working `torchcodec` package, reinstall `torchcodec` from the same PyTorch
+wheel index again afterward.
 
 ## Hugging Face login
 
@@ -131,6 +179,7 @@ Run these checks after setup:
 ```bash
 python -c "import cv2, numpy, scipy, pandas, PIL, matplotlib; print('base deps ok')"
 python -c "import torch, torchvision, torchaudio; print('torch ok')"
+python -c "import torchcodec; print('torchcodec ok')"
 python -c "import sam2; print('sam2 ok')"
 python -c "import sam_audio; print('sam_audio ok')"
 python -c "from path_layout import resolve_ffmpeg_binary; print(resolve_ffmpeg_binary())"
