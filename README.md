@@ -30,7 +30,7 @@ Local pipeline for:
 Use PowerShell in:
 
 ```powershell
-cd C:\Users\dhrum\Downloads\Final_Project
+cd C:\path\to\Final_Project
 ```
 
 ### 2. Create and activate a virtual environment
