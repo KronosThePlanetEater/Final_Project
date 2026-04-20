@@ -21,10 +21,11 @@ import pandas as pd
 from PIL import Image
 
 from analyze_results import analyze_results
-from audio_pipeline import run_audio_pipeline
+from audio_pipeline import create_audio_aligned_segment, run_audio_pipeline
 from dataset_prep import prepare_clip
 from evaluation import evaluate_run
 from path_layout import INPUT_ROOT, OUTPUT_ROOT, ensure_standard_directories, resolve_existing_path
+from posthoc_analysis import create_posthoc_analysis_set, discover_mergeable_runs, get_recent_analysis_set_ids, group_runs_by_clip, load_analysis_set
 from progress_utils import iso_utc_now
 from run_experiments import materialize_tracking_outputs
 from tracker import PreviewHandler, SAM2ImagePredictor, build_sam2, get_box_from_mask, mask_to_bool, normalize_sam2_config_path, selection_from_dict, setup_device, track_object
@@ -467,6 +468,10 @@ def get_active_job_state() -> Optional[Dict[str, Any]]:
     return None
 
 
+def list_posthoc_runs_by_clip() -> Dict[str, List[Dict[str, Any]]]:
+    return group_runs_by_clip(discover_mergeable_runs())
+
+
 def draw_selection_overlay(frame_rgb: np.ndarray, selection: Dict[str, Any]) -> np.ndarray:
     canvas = frame_rgb.copy()
     if selection.get("mode") == "bbox":
@@ -775,8 +780,16 @@ def _run_job(job_id: str, config: Dict[str, Any]) -> None:
                     }
                 })
                 copied_tracking_summary = materialize_tracking_outputs(tracking_summary, run_dir)
+                audio_input_video_path = create_audio_aligned_segment(
+                    source_video_path=prepared["canonical_video_path"],
+                    output_video_path=str(run_dir / "audio_input" / "input_segment.mp4"),
+                    start_time_seconds=float(copied_tracking_summary.get("start_time_seconds", 0.0) or 0.0),
+                    frame_count=int(copied_tracking_summary.get("total_frames") or 0),
+                    fps=float(copied_tracking_summary.get("fps") or prepared.get("fps") or 0.0),
+                    ffmpeg_bin=config.get("ffmpeg_bin", "ffmpeg"),
+                )
                 audio_summary = run_audio_pipeline(
-                    video_path=prepared["canonical_video_path"],
+                    video_path=audio_input_video_path,
                     mask_path=copied_tracking_summary["mask_stack_path"],
                     output_dir=str(run_dir / "audio"),
                     clip_id=clip_id,

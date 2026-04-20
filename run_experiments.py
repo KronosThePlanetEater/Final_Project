@@ -4,7 +4,7 @@ import shutil
 from pathlib import Path
 from typing import Dict, Optional
 
-from audio_pipeline import run_audio_pipeline
+from audio_pipeline import create_audio_aligned_segment, run_audio_pipeline
 from dataset_prep import prepare_clip
 from evaluation import evaluate_run
 from tracker import selection_from_dict, track_object
@@ -112,12 +112,6 @@ def run_batch_experiments(
     ground_truth_mask_map = ground_truth_mask_map or {}
     audio_model_sizes = audio_model_sizes or ["small-tv"]
 
-    if not allow_placeholder_audio and (start_time != 0.0 or max_frames is not None):
-        raise ValueError(
-            "Real SAM-Audio visual prompting requires the prepared video clip to exactly match the tracker segment. "
-            "Use the full prepared clip for now, or enable placeholder audio for smoke tests only."
-        )
-
     prepared_root = output_root / "prepared"
     tracking_cache_root = output_root / "_tracking_cache"
     ensure_dir(prepared_root)
@@ -169,9 +163,17 @@ def run_batch_experiments(
             run_dir = output_root / f"{clip_id}_{model_size}"
             ensure_dir(run_dir)
             copied_tracking_summary = materialize_tracking_outputs(tracking_summary, run_dir)
+            audio_input_video_path = create_audio_aligned_segment(
+                source_video_path=prepared["canonical_video_path"],
+                output_video_path=str(run_dir / "audio_input" / "input_segment.mp4"),
+                start_time_seconds=float(copied_tracking_summary.get("start_time_seconds", 0.0) or 0.0),
+                frame_count=int(copied_tracking_summary.get("total_frames") or 0),
+                fps=float(copied_tracking_summary.get("fps") or prepared.get("fps") or 0.0),
+                ffmpeg_bin=ffmpeg_bin,
+            )
 
             audio_result = run_audio_pipeline(
-                video_path=prepared["canonical_video_path"],
+                video_path=audio_input_video_path,
                 mask_path=copied_tracking_summary["mask_stack_path"],
                 output_dir=str(run_dir / "audio"),
                 clip_id=clip_id,
