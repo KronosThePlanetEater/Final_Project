@@ -17,7 +17,6 @@ Copy these folders/files into the Linux machine:
 - `tools/ffmpeg/linux/ffmpeg` if you want a repo-local Linux ffmpeg binary
 
 Do **not** copy `.venv/` from Windows.
-Do **not** copy a Linux Conda environment such as `.conda/` between machines or containers.
 
 ## Enter the container
 
@@ -35,43 +34,22 @@ Install Ubuntu packages first:
 
 ```bash
 sudo apt update
-sudo apt install -y ffmpeg build-essential git pkg-config libgl1 libglib2.0-0
+sudo apt install -y python3 python3-venv python3-pip ffmpeg build-essential git pkg-config libgl1 libglib2.0-0
 ```
 
 Notes:
 - `ffmpeg` is the default Linux choice.
 - If you prefer a repo-local binary, place it at `tools/ffmpeg/linux/ffmpeg`.
 - `libgl1` and `libglib2.0-0` help OpenCV imports work on Ubuntu.
-- Some containers do not include `python3-venv`, so this guide uses Conda instead of `python -m venv`.
 
 ## Create the Linux environment
-
-If `conda` is not installed in the container, install Miniconda or Mambaforge in your home directory first, then
-start a new `Singularity>` shell and continue.
 
 From the project root:
 
 ```bash
-conda env create --prefix ./.conda -f environment-linux.yml
-conda activate /path/to/Final_Project/.conda
+python3 -m venv .venv
+source .venv/bin/activate
 python -m pip install --upgrade pip
-```
-
-If `conda activate` is not available in the current shell, initialize it first:
-
-```bash
-source ~/miniconda3/etc/profile.d/conda.sh
-conda env create --prefix ./.conda -f environment-linux.yml
-conda activate /path/to/Final_Project/.conda
-```
-
-Keep one Conda environment per container line when possible. Recreate `.conda` if you switch to a different
-container release such as `pytorch:25.10-py3.sif`.
-
-`environment-linux.yml` installs both `requirements.txt` and `requirements-webui.txt` through pip. If you edit either
-requirements file later, refresh the environment with:
-
-```bash
 python -m pip install -r requirements.txt
 python -m pip install -r requirements-webui.txt
 ```

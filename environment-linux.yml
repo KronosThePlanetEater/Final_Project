@@ -1,9 +1,0 @@
-name: final-project-linux
-channels:
-  - conda-forge
-dependencies:
-  - python=3.10
-  - pip
-  - pip:
-      - -r requirements.txt
-      - -r requirements-webui.txt

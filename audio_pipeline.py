@@ -98,6 +98,117 @@ def mux_audio_with_video(video_path: str, audio_path: str, output_video_path: st
     return output_video_path
 
 
+def create_audio_aligned_segment(
+    source_video_path: str,
+    output_video_path: str,
+    start_time_seconds: float,
+    frame_count: int,
+    fps: Optional[float],
+    ffmpeg_bin: str = "ffmpeg",
+) -> str:
+    source_meta = probe_video(source_video_path)
+    effective_fps = float(fps or source_meta.get("fps") or 0.0)
+    if effective_fps <= 0:
+        raise RuntimeError("Could not determine FPS for audio-aligned segment generation.")
+    if frame_count <= 0:
+        raise RuntimeError("frame_count must be positive when generating an audio-aligned segment.")
+
+    start_frame = max(0, int(start_time_seconds * effective_fps))
+    if start_frame == 0 and frame_count == int(source_meta.get("frame_count") or 0):
+        return str(Path(source_video_path).resolve())
+
+    total_source_frames = int(source_meta.get("frame_count") or 0)
+    if total_source_frames and start_frame + frame_count > total_source_frames:
+        raise RuntimeError(
+            f"Requested audio segment frames {start_frame}..{start_frame + frame_count - 1} exceed source video length ({total_source_frames} frames)."
+        )
+
+    output_path = Path(output_video_path)
+    ensure_dir(output_path.parent)
+    raw_video_path = output_path.with_name(f"{output_path.stem}.video_only.mp4")
+    transcoded_video_path = output_path.with_name(f"{output_path.stem}.video_only_h264.mp4")
+    segment_audio_path = output_path.with_name(f"{output_path.stem}.audio.wav")
+
+    cap = cv2.VideoCapture(source_video_path)
+    if not cap.isOpened():
+        raise RuntimeError(f"Failed to open source video for segment export: {source_video_path}")
+
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+    cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+    writer = cv2.VideoWriter(
+        str(raw_video_path),
+        cv2.VideoWriter_fourcc(*"mp4v"),
+        effective_fps,
+        (width, height),
+    )
+    written = 0
+    try:
+        for _ in range(frame_count):
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                break
+            writer.write(frame)
+            written += 1
+    finally:
+        writer.release()
+        cap.release()
+
+    if written != frame_count:
+        raise RuntimeError(
+            f"Generated segment frame count ({written}) did not match expected tracker frame count ({frame_count})."
+        )
+
+    run_ffmpeg([
+        ffmpeg_bin,
+        "-y",
+        "-i",
+        str(raw_video_path),
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+        "-movflags",
+        "+faststart",
+        "-an",
+        str(transcoded_video_path),
+    ])
+
+    duration_seconds = frame_count / effective_fps
+    run_ffmpeg([
+        ffmpeg_bin,
+        "-y",
+        "-ss",
+        f"{start_time_seconds:.6f}",
+        "-i",
+        str(source_video_path),
+        "-t",
+        f"{duration_seconds:.6f}",
+        "-vn",
+        "-acodec",
+        "pcm_s16le",
+        "-ar",
+        "16000",
+        "-ac",
+        "1",
+        str(segment_audio_path),
+    ])
+
+    mux_audio_with_video(str(transcoded_video_path), str(segment_audio_path), str(output_path), ffmpeg_bin=ffmpeg_bin)
+    segment_meta = probe_video(str(output_path))
+    if int(segment_meta.get("frame_count") or 0) != frame_count:
+        raise RuntimeError(
+            f"Segmented video frame count ({int(segment_meta.get('frame_count') or 0)}) does not match expected tracker frame count ({frame_count})."
+        )
+
+    for temp_path in (raw_video_path, transcoded_video_path, segment_audio_path):
+        try:
+            temp_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+    return str(output_path.resolve())
+
+
 def load_mask_bundle(mask_path: str) -> Dict[str, Any]:
     mask_file = Path(mask_path)
     if mask_file.suffix == ".npy":

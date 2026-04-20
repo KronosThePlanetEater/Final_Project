@@ -18,13 +18,17 @@ from path_layout import INPUT_ROOT, PROJECT_ROOT
 from ui_backend import (
     TRACKER_PRESETS,
     VALID_AUDIO_MODEL_SIZES,
+    create_posthoc_analysis_set,
     format_run_label,
     get_active_job_state,
     get_latest_job_state,
+    get_recent_analysis_set_ids,
     get_recent_job_ids,
     list_ground_truth_mask_files,
     list_input_videos,
     list_reference_audio_files,
+    list_posthoc_runs_by_clip,
+    load_analysis_set,
     load_job_state,
     load_metrics_preview,
     load_selection_frame,
@@ -257,6 +261,7 @@ def ensure_session_defaults() -> None:
     st.session_state.setdefault("mask_preview_signature", None)
     st.session_state.setdefault("observed_job_id", None)
     st.session_state.setdefault("observed_job_status", None)
+    st.session_state.setdefault("selected_posthoc_set_id", None)
 
 
 def parse_optional_int(value: Any) -> Optional[int]:
@@ -701,6 +706,111 @@ def render_results_panel(job_state: Optional[Dict[str, Any]]) -> None:
             render_image_file(image_path, caption=Path(image_path).name, container=image_cols[idx % 2])
 
 
+def render_posthoc_analysis_results(bundle: Optional[Dict[str, Any]]) -> None:
+    st.subheader("Post-Hoc Analysis")
+    if not bundle:
+        st.info("Create or select an analysis set to inspect merged results.")
+        return
+
+    metadata = bundle.get("metadata", {}) or {}
+    manifest = bundle.get("run_manifest", []) or []
+    analysis_summary = bundle.get("analysis_summary", {}) or {}
+    st.caption(
+        f"Set {bundle.get('set_id', '-')} | Clip {metadata.get('clip_id', '-')} | "
+        f"Selected runs {metadata.get('selected_run_count', len(manifest))}"
+    )
+
+    tabs = st.tabs(["Summary", "Manifest", "Analytics"])
+    with tabs[0]:
+        metrics_cols = st.columns(4)
+        metrics_cols[0].metric("Clip", metadata.get("clip_id", "-"))
+        metrics_cols[1].metric("Selected runs", metadata.get("selected_run_count", len(manifest)))
+        metrics_cols[2].metric("Eligible runs", analysis_summary.get("eligible_run_count", "-"))
+        metrics_cols[3].metric("Skipped runs", analysis_summary.get("skipped_run_count", "-"))
+        st.markdown("**Set Metadata**")
+        st.json(metadata)
+        st.markdown("**Analysis Summary**")
+        st.json(analysis_summary)
+
+    with tabs[1]:
+        if manifest:
+            rows = []
+            for entry in manifest:
+                rows.append({
+                    "Run": entry.get("display_label") or entry.get("run_id"),
+                    "Tracker": entry.get("tracker_variant_label") or entry.get("tracker_variant_key"),
+                    "Audio": entry.get("audio_model_size") or "-",
+                    "Precision": entry.get("effective_audio_precision") or entry.get("requested_audio_precision") or "-",
+                    "Job": entry.get("job_id") or "-",
+                    "Run ID": entry.get("run_id") or "-",
+                })
+            render_html_table(rows, columns=["Run", "Tracker", "Audio", "Precision", "Job", "Run ID"])
+        else:
+            st.info("No run manifest entries were found for this analysis set.")
+
+    with tabs[2]:
+        aggregate_csv = bundle.get("aggregate_csv")
+        if aggregate_csv and Path(aggregate_csv).exists():
+            df = load_metrics_preview(aggregate_csv, max_rows=500)
+            if not df.empty:
+                render_html_table(df, max_rows=500)
+        image_cols = st.columns(2)
+        for idx, image_path in enumerate(bundle.get("analysis_images", [])):
+            render_image_file(image_path, caption=Path(image_path).name, container=image_cols[idx % 2])
+
+
+def render_posthoc_analysis_panel() -> None:
+    grouped_runs = list_posthoc_runs_by_clip()
+    recent_set_ids = get_recent_analysis_set_ids(limit=20)
+
+    if grouped_runs:
+        clip_id = st.selectbox(
+            "Clip for merged analysis",
+            list(grouped_runs.keys()),
+            key="posthoc_clip_selector",
+            help="Only runs from the same clip can be merged into one post-hoc analysis set.",
+        )
+        clip_runs = grouped_runs.get(clip_id, [])
+        option_map = {
+            f"{entry.get('display_label') or entry.get('run_id')} [{entry.get('job_id') or 'manual'} / {entry.get('run_id')}]": entry
+            for entry in clip_runs
+        }
+        selected_labels = st.multiselect(
+            "Completed runs to merge",
+            list(option_map.keys()),
+            key="posthoc_run_selector",
+            help="Select previously completed runs for the same clip, then build one merged analysis set without rerunning tracking or audio.",
+        )
+        if compat_button("Create post-hoc analysis set", disabled=len(selected_labels) == 0, use_container_width=True):
+            try:
+                result = create_posthoc_analysis_set([option_map[label] for label in selected_labels])
+                st.session_state["selected_posthoc_set_id"] = result["set_id"]
+                st.success(f"Created analysis set {result['set_id']}")
+                rerun_app()
+            except Exception as exc:
+                st.error(str(exc))
+    else:
+        st.info("No eligible completed runs were found for post-hoc merging yet.")
+
+    selected_set_id = st.session_state.get("selected_posthoc_set_id")
+    available_set_ids = recent_set_ids
+    if available_set_ids:
+        default_index = 0
+        if selected_set_id in available_set_ids:
+            default_index = available_set_ids.index(selected_set_id)
+        selected_set_id = st.selectbox(
+            "Recent analysis sets",
+            available_set_ids,
+            index=default_index,
+            key="posthoc_set_selector",
+            help="Inspect a previously created merged analysis set without rerunning any model stages.",
+        )
+        st.session_state["selected_posthoc_set_id"] = selected_set_id
+        render_posthoc_analysis_results(load_analysis_set(selected_set_id))
+    else:
+        render_posthoc_analysis_results(None)
+
+
 def main() -> None:
     ensure_session_defaults()
     previous_job_status = st.session_state.get("observed_job_status")
@@ -749,16 +859,24 @@ def main() -> None:
     st.session_state["observed_job_id"] = current_job_id
     st.session_state["observed_job_status"] = current_job_status
 
-    left, center, right = st.columns([1.15, 1.35, 1.0])
-    with left:
-        render_left_panel(video_name, active_job)
-    with center:
-        render_center_panel(video_name)
-    with right:
-        render_right_panel(job_state)
+    main_tab, outputs_tab, posthoc_tab = st.tabs(
+        ["Main", "Outputs and Analytics", "Post-Hoc Analysis"]
+    )
 
-    draw_divider()
-    render_results_panel(job_state)
+    with main_tab:
+        left, center, right = st.columns([1.15, 1.35, 1.0])
+        with left:
+            render_left_panel(video_name, active_job)
+        with center:
+            render_center_panel(video_name)
+        with right:
+            render_right_panel(job_state)
+
+    with outputs_tab:
+        render_results_panel(job_state)
+
+    with posthoc_tab:
+        render_posthoc_analysis_panel()
 
     if active_job is not None:
         time.sleep(2)
