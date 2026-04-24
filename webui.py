@@ -262,6 +262,9 @@ def ensure_session_defaults() -> None:
     st.session_state.setdefault("observed_job_id", None)
     st.session_state.setdefault("observed_job_status", None)
     st.session_state.setdefault("selected_posthoc_set_id", None)
+    st.session_state.setdefault("segment_processing", False)
+    st.session_state.setdefault("segment_length_seconds", 15.0)
+    st.session_state.setdefault("segment_overlap_seconds", 2.0)
 
 
 def parse_optional_int(value: Any) -> Optional[int]:
@@ -348,6 +351,9 @@ def build_job_config(video_name: str) -> Dict[str, Any]:
         "target_width": parse_optional_int(st.session_state.get("target_width")),
         "target_height": parse_optional_int(st.session_state.get("target_height")),
         "ffmpeg_bin": st.session_state.get("ffmpeg_bin", "ffmpeg") or "ffmpeg",
+        "segment_processing": bool(st.session_state.get("segment_processing", False)),
+        "segment_length_seconds": float(st.session_state.get("segment_length_seconds", 15.0) or 15.0),
+        "segment_overlap_seconds": float(st.session_state.get("segment_overlap_seconds", 2.0) or 2.0),
     }
 
 
@@ -447,6 +453,29 @@ def render_left_panel(video_name: Optional[str], active_job: Optional[Dict[str, 
         st.text_input("Target width", value="", key="target_width", help="Leave blank to keep the original width.")
         st.text_input("Target height", value="", key="target_height", help="Leave blank to keep the original height.")
         st.text_input("ffmpeg binary", value="ffmpeg", key="ffmpeg_bin", help="Command name or full path for ffmpeg. Leave as ffmpeg for the normal default, or point to a custom binary. Repo-local tools/ffmpeg binaries are auto-detected when available.")
+        st.checkbox(
+            "Segment processing for long clips",
+            value=False,
+            key="segment_processing",
+            help="Split the selected clip span into overlapping subclips, run tracking and SAM-Audio per segment, then stitch the final outputs back together. This can help longer runs fit on smaller GPUs.",
+        )
+        segment_cols = st.columns(2)
+        segment_cols[0].number_input(
+            "Segment length (seconds)",
+            min_value=1.0,
+            step=1.0,
+            value=float(st.session_state.get("segment_length_seconds", 15.0) or 15.0),
+            key="segment_length_seconds",
+            help="Target duration for each processing chunk before stitching. Shorter segments lower memory pressure but increase boundary management.",
+        )
+        segment_cols[1].number_input(
+            "Segment overlap (seconds)",
+            min_value=0.0,
+            step=0.5,
+            value=float(st.session_state.get("segment_overlap_seconds", 2.0) or 2.0),
+            key="segment_overlap_seconds",
+            help="Shared context between neighboring segments. Overlap helps prompt continuity and smoother stitched audio, but it must stay smaller than the segment length.",
+        )
 
     st.info(selection_summary(st.session_state.get("ui_selection")))
     disabled = active_job is not None or st.session_state.get("ui_selection") is None

@@ -9,6 +9,7 @@ from dataset_prep import prepare_clip
 from evaluation import evaluate_run
 from tracker import selection_from_dict, track_object
 from path_layout import PLACEHOLDER_ROOT, ensure_standard_directories, resolve_existing_path, resolve_input_path, resolve_output_path
+from segmented_pipeline import run_segmented_pipeline, validate_segment_settings
 
 
 def ensure_dir(path: Path) -> None:
@@ -99,8 +100,12 @@ def run_batch_experiments(
     skip_mask_confirmation=False,
     save_mask_pngs=False,
     show_preview=False,
+    segment_processing=False,
+    segment_length_seconds=15.0,
+    segment_overlap_seconds=2.0,
 ):
     ensure_standard_directories()
+    validate_segment_settings(bool(segment_processing), float(segment_length_seconds), float(segment_overlap_seconds))
 
     default_output_relative = "placeholder_test/experiments" if allow_placeholder_audio else "experiments"
     output_root = resolve_output_path(output_dir, default_output_relative).resolve()
@@ -137,67 +142,110 @@ def run_batch_experiments(
         tracking_frames_dir = tracking_video_dir / "frames"
         ensure_dir(tracking_video_dir)
         selection = selection_from_dict(selection_map.get(clip_id))
+        tracker_variant = {
+            "key": "dynamic" if dynamic_interval else f"static_{sam_interval}",
+            "label": "Dynamic SAM + Optical Flow" if dynamic_interval else f"Static SAM ({sam_interval})",
+            "sam_interval": sam_interval,
+            "dynamic_interval": list(dynamic_interval) if dynamic_interval else None,
+        }
 
-        tracking_summary = track_object(
-            video_path=prepared["prepared_video_path"],
-            output_path=str(tracking_video_dir / "tracked.mp4"),
-            checkpoint_path=checkpoint_path,
-            config_path=config_path,
-            frames_dir=str(tracking_frames_dir),
-            extract_frames=True,
-            selection_mode=selection_mode,
-            max_frames=max_frames,
-            start_time=start_time,
-            scale=scale,
-            initial_selection=selection,
-            skip_mask_confirmation=skip_mask_confirmation,
-            sam_interval=sam_interval,
-            dynamic_interval=dynamic_interval,
-            background_color=None,
-            show_preview=show_preview,
-            artifacts_dir=str(tracking_cache_dir),
-            save_mask_pngs=save_mask_pngs,
-        )
-
+        tracking_summary = None
         for model_size in audio_model_sizes:
             run_dir = output_root / f"{clip_id}_{model_size}"
             ensure_dir(run_dir)
-            copied_tracking_summary = materialize_tracking_outputs(tracking_summary, run_dir)
-            audio_input_video_path = create_audio_aligned_segment(
-                source_video_path=prepared["canonical_video_path"],
-                output_video_path=str(run_dir / "audio_input" / "input_segment.mp4"),
-                start_time_seconds=float(copied_tracking_summary.get("start_time_seconds", 0.0) or 0.0),
-                frame_count=int(copied_tracking_summary.get("total_frames") or 0),
-                fps=float(copied_tracking_summary.get("fps") or prepared.get("fps") or 0.0),
-                ffmpeg_bin=ffmpeg_bin,
-            )
 
-            audio_result = run_audio_pipeline(
-                video_path=audio_input_video_path,
-                mask_path=copied_tracking_summary["mask_stack_path"],
-                output_dir=str(run_dir / "audio"),
-                clip_id=clip_id,
-                model_size=model_size,
-                model_id=audio_model_id,
-                prompt_mode="visual",
-                device=audio_device,
-                predict_spans=predict_spans,
-                reranking_candidates=reranking_candidates,
-                allow_placeholder=allow_placeholder_audio,
-                ffmpeg_bin=ffmpeg_bin,
-            )
+            if segment_processing:
+                segmented_result = run_segmented_pipeline(
+                    prepared_video_path=prepared["prepared_video_path"],
+                    canonical_video_path=prepared["canonical_video_path"],
+                    run_dir=str(run_dir),
+                    clip_id=clip_id,
+                    checkpoint_path=checkpoint_path,
+                    config_path=config_path,
+                    selection_mode=selection_mode,
+                    initial_selection=selection,
+                    max_frames=max_frames,
+                    start_time=start_time,
+                    scale=scale,
+                    tracker_variant=tracker_variant,
+                    save_mask_pngs=save_mask_pngs,
+                    audio_model_size=model_size,
+                    audio_model_id=audio_model_id,
+                    audio_device=audio_device,
+                    audio_precision="auto",
+                    predict_spans=predict_spans,
+                    reranking_candidates=reranking_candidates,
+                    allow_placeholder_audio=allow_placeholder_audio,
+                    release_memory_after_run=True,
+                    reference_audio_path=reference_audio_map.get(clip_id),
+                    ground_truth_mask_path=ground_truth_mask_map.get(clip_id),
+                    ffmpeg_bin=ffmpeg_bin,
+                    segment_length_seconds=float(segment_length_seconds),
+                    segment_overlap_seconds=float(segment_overlap_seconds),
+                )
+                final_tracking_summary = segmented_result["tracking_summary"]
+                audio_result = segmented_result["audio_summary"]
+                evaluation_result = segmented_result["evaluation_summary"]
+            else:
+                if tracking_summary is None:
+                    tracking_summary = track_object(
+                        video_path=prepared["prepared_video_path"],
+                        output_path=str(tracking_video_dir / "tracked.mp4"),
+                        checkpoint_path=checkpoint_path,
+                        config_path=config_path,
+                        frames_dir=str(tracking_frames_dir),
+                        extract_frames=True,
+                        selection_mode=selection_mode,
+                        max_frames=max_frames,
+                        start_time=start_time,
+                        scale=scale,
+                        initial_selection=selection,
+                        skip_mask_confirmation=skip_mask_confirmation,
+                        sam_interval=sam_interval,
+                        dynamic_interval=dynamic_interval,
+                        background_color=None,
+                        show_preview=show_preview,
+                        artifacts_dir=str(tracking_cache_dir),
+                        save_mask_pngs=save_mask_pngs,
+                    )
 
-            evaluation_result = evaluate_run(
-                output_dir=str(run_dir / "eval"),
-                clip_id=clip_id,
-                model_size=model_size,
-                model_id=audio_result["model_id"],
-                predicted_mask_path=copied_tracking_summary["mask_stack_path"],
-                ground_truth_mask_path=ground_truth_mask_map.get(clip_id),
-                estimated_audio_path=audio_result["target_audio_path"],
-                reference_audio_path=reference_audio_map.get(clip_id),
-                audio_metadata_path=audio_result["metadata_path"],
-            )
+                copied_tracking_summary = materialize_tracking_outputs(tracking_summary, run_dir)
+                audio_input_video_path = create_audio_aligned_segment(
+                    source_video_path=prepared["canonical_video_path"],
+                    output_video_path=str(run_dir / "audio_input" / "input_segment.mp4"),
+                    start_time_seconds=float(copied_tracking_summary.get("start_time_seconds", 0.0) or 0.0),
+                    frame_count=int(copied_tracking_summary.get("total_frames") or 0),
+                    fps=float(copied_tracking_summary.get("fps") or prepared.get("fps") or 0.0),
+                    ffmpeg_bin=ffmpeg_bin,
+                )
+
+                audio_result = run_audio_pipeline(
+                    video_path=audio_input_video_path,
+                    mask_path=copied_tracking_summary["mask_stack_path"],
+                    output_dir=str(run_dir / "audio"),
+                    clip_id=clip_id,
+                    model_size=model_size,
+                    model_id=audio_model_id,
+                    prompt_mode="visual",
+                    device=audio_device,
+                    predict_spans=predict_spans,
+                    reranking_candidates=reranking_candidates,
+                    allow_placeholder=allow_placeholder_audio,
+                    ffmpeg_bin=ffmpeg_bin,
+                )
+
+                evaluation_result = evaluate_run(
+                    output_dir=str(run_dir / "eval"),
+                    clip_id=clip_id,
+                    model_size=model_size,
+                    model_id=audio_result["model_id"],
+                    predicted_mask_path=copied_tracking_summary["mask_stack_path"],
+                    ground_truth_mask_path=ground_truth_mask_map.get(clip_id),
+                    estimated_audio_path=audio_result["target_audio_path"],
+                    reference_audio_path=reference_audio_map.get(clip_id),
+                    audio_metadata_path=audio_result["metadata_path"],
+                )
+                final_tracking_summary = copied_tracking_summary
 
             manifest.append(
                 {
@@ -205,7 +253,7 @@ def run_batch_experiments(
                     "model_size": model_size,
                     "run_dir": str(run_dir),
                     "prepared_clip": prepared,
-                    "tracking_summary_path": copied_tracking_summary["summary_json_path"],
+                    "tracking_summary_path": final_tracking_summary["summary_json_path"],
                     "audio_metadata_path": audio_result["metadata_path"],
                     "evaluation_summary_path": evaluation_result["summary_path"],
                 }
@@ -286,6 +334,23 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--save-mask-pngs", action="store_true", help="Export per-frame mask PNGs.")
     parser.add_argument("--preview", action="store_true", help="Show tracker preview during tracking.")
+    parser.add_argument(
+        "--segment-processing",
+        action="store_true",
+        help="Split the selected clip span into overlapping segments, process each one independently, and stitch the final tracking/audio outputs back together.",
+    )
+    parser.add_argument(
+        "--segment-length-seconds",
+        type=float,
+        default=15.0,
+        help="Target duration for each segment when --segment-processing is enabled.",
+    )
+    parser.add_argument(
+        "--segment-overlap-seconds",
+        type=float,
+        default=2.0,
+        help="Overlap duration between neighboring segments when --segment-processing is enabled.",
+    )
     return parser
 
 
@@ -320,5 +385,8 @@ if __name__ == "__main__":
         skip_mask_confirmation=args.skip_mask_confirmation,
         save_mask_pngs=args.save_mask_pngs,
         show_preview=args.preview,
+        segment_processing=args.segment_processing,
+        segment_length_seconds=args.segment_length_seconds,
+        segment_overlap_seconds=args.segment_overlap_seconds,
     )
     print(json.dumps(result, indent=2))

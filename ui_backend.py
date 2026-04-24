@@ -28,6 +28,7 @@ from path_layout import INPUT_ROOT, OUTPUT_ROOT, ensure_standard_directories, re
 from posthoc_analysis import create_posthoc_analysis_set, discover_mergeable_runs, get_recent_analysis_set_ids, group_runs_by_clip, load_analysis_set
 from progress_utils import iso_utc_now
 from run_experiments import materialize_tracking_outputs
+from segmented_pipeline import run_segmented_pipeline, validate_segment_settings
 from tracker import PreviewHandler, SAM2ImagePredictor, build_sam2, get_box_from_mask, mask_to_bool, normalize_sam2_config_path, selection_from_dict, setup_device, track_object
 
 VIDEO_SUFFIXES = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
@@ -735,6 +736,7 @@ def _run_job(job_id: str, config: Dict[str, Any]) -> None:
 
         for tracker_variant in tracker_variants:
             tracking_cache_dir = tracking_root / tracker_variant["key"]
+            tracking_summary = None
             patch_job_state(job_id, {
                 "current_run": {
                     "index": completed_runs + 1,
@@ -744,28 +746,6 @@ def _run_job(job_id: str, config: Dict[str, Any]) -> None:
                     "audio_model": None,
                 }
             })
-            tracking_summary = track_object(
-                video_path=prepared["prepared_video_path"],
-                output_path=str(tracking_cache_dir / "video" / "tracked.mp4"),
-                checkpoint_path=config["checkpoint_path"],
-                config_path=config["config_path"],
-                frames_dir=str(tracking_cache_dir / "frames"),
-                extract_frames=True,
-                selection_mode=config["selection_mode"],
-                max_frames=config.get("max_frames"),
-                start_time=config.get("start_time", 0.0),
-                scale=config.get("scale", 1.0),
-                initial_selection=selection_from_dict(selection),
-                skip_mask_confirmation=True,
-                sam_interval=tracker_variant["sam_interval"],
-                dynamic_interval=tuple(tracker_variant["dynamic_interval"]) if tracker_variant.get("dynamic_interval") else None,
-                background_color=None,
-                show_preview=False,
-                artifacts_dir=str(tracking_cache_dir),
-                save_mask_pngs=config.get("save_mask_pngs", False),
-                ffmpeg_bin=config.get("ffmpeg_bin", "ffmpeg"),
-                progress_callback=stage_callback(job_id, "tracking"),
-            )
 
             for audio_model_size in audio_models:
                 run_id = f"{tracker_variant['key']}__{audio_model_size}"
@@ -779,64 +759,133 @@ def _run_job(job_id: str, config: Dict[str, Any]) -> None:
                         "audio_model": audio_model_size,
                     }
                 })
-                copied_tracking_summary = materialize_tracking_outputs(tracking_summary, run_dir)
-                audio_input_video_path = create_audio_aligned_segment(
-                    source_video_path=prepared["canonical_video_path"],
-                    output_video_path=str(run_dir / "audio_input" / "input_segment.mp4"),
-                    start_time_seconds=float(copied_tracking_summary.get("start_time_seconds", 0.0) or 0.0),
-                    frame_count=int(copied_tracking_summary.get("total_frames") or 0),
-                    fps=float(copied_tracking_summary.get("fps") or prepared.get("fps") or 0.0),
-                    ffmpeg_bin=config.get("ffmpeg_bin", "ffmpeg"),
-                )
-                audio_summary = run_audio_pipeline(
-                    video_path=audio_input_video_path,
-                    mask_path=copied_tracking_summary["mask_stack_path"],
-                    output_dir=str(run_dir / "audio"),
-                    clip_id=clip_id,
-                    model_size=audio_model_size,
-                    model_id=config.get("audio_model_id"),
-                    prompt_mode="visual",
-                    device=config.get("audio_device"),
-                    audio_precision=config.get("audio_precision", "auto"),
-                    predict_spans=config.get("predict_spans", False),
-                    reranking_candidates=config.get("reranking_candidates", 1),
-                    allow_placeholder=config.get("allow_placeholder_audio", False),
-                    mux_video_outputs=True,
-                    ffmpeg_bin=config.get("ffmpeg_bin", "ffmpeg"),
-                    progress_callback=stage_callback(job_id, "audio"),
-                )
-                evaluation_summary = evaluate_run(
-                    output_dir=str(run_dir / "eval"),
-                    clip_id=clip_id,
-                    model_size=audio_model_size,
-                    model_id=audio_summary.get("model_id"),
-                    predicted_mask_path=copied_tracking_summary["mask_stack_path"],
-                    ground_truth_mask_path=config.get("ground_truth_mask_path"),
-                    estimated_audio_path=audio_summary.get("target_audio_path"),
-                    reference_audio_path=config.get("reference_audio_path"),
-                    audio_metadata_path=audio_summary.get("metadata_path"),
-                    progress_callback=stage_callback(job_id, "evaluation"),
-                )
+
+                if config.get("segment_processing", False):
+                    segmented_result = run_segmented_pipeline(
+                        prepared_video_path=prepared["prepared_video_path"],
+                        canonical_video_path=prepared["canonical_video_path"],
+                        run_dir=str(run_dir),
+                        clip_id=clip_id,
+                        checkpoint_path=config["checkpoint_path"],
+                        config_path=config["config_path"],
+                        selection_mode=config["selection_mode"],
+                        initial_selection=selection_from_dict(selection),
+                        max_frames=config.get("max_frames"),
+                        start_time=config.get("start_time", 0.0),
+                        scale=config.get("scale", 1.0),
+                        tracker_variant=tracker_variant,
+                        save_mask_pngs=config.get("save_mask_pngs", False),
+                        audio_model_size=audio_model_size,
+                        audio_model_id=config.get("audio_model_id"),
+                        audio_device=config.get("audio_device"),
+                        audio_precision=config.get("audio_precision", "auto"),
+                        predict_spans=config.get("predict_spans", False),
+                        reranking_candidates=config.get("reranking_candidates", 1),
+                        allow_placeholder_audio=config.get("allow_placeholder_audio", False),
+                        release_memory_after_run=bool(config.get("release_memory_after_run", True)),
+                        reference_audio_path=config.get("reference_audio_path"),
+                        ground_truth_mask_path=config.get("ground_truth_mask_path"),
+                        ffmpeg_bin=config.get("ffmpeg_bin", "ffmpeg"),
+                        segment_length_seconds=float(config.get("segment_length_seconds", 15.0) or 15.0),
+                        segment_overlap_seconds=float(config.get("segment_overlap_seconds", 2.0) or 2.0),
+                        tracking_progress_callback=stage_callback(job_id, "tracking"),
+                        audio_progress_callback=stage_callback(job_id, "audio"),
+                        evaluation_progress_callback=stage_callback(job_id, "evaluation"),
+                        cleanup_callback=cleanup_runtime_memory,
+                    )
+                    final_tracking_summary = segmented_result["tracking_summary"]
+                    final_audio_summary = segmented_result["audio_summary"]
+                    final_evaluation_summary = segmented_result["evaluation_summary"]
+                else:
+                    if tracking_summary is None:
+                        tracking_summary = track_object(
+                            video_path=prepared["prepared_video_path"],
+                            output_path=str(tracking_cache_dir / "video" / "tracked.mp4"),
+                            checkpoint_path=config["checkpoint_path"],
+                            config_path=config["config_path"],
+                            frames_dir=str(tracking_cache_dir / "frames"),
+                            extract_frames=True,
+                            selection_mode=config["selection_mode"],
+                            max_frames=config.get("max_frames"),
+                            start_time=config.get("start_time", 0.0),
+                            scale=config.get("scale", 1.0),
+                            initial_selection=selection_from_dict(selection),
+                            skip_mask_confirmation=True,
+                            sam_interval=tracker_variant["sam_interval"],
+                            dynamic_interval=tuple(tracker_variant["dynamic_interval"]) if tracker_variant.get("dynamic_interval") else None,
+                            background_color=None,
+                            show_preview=False,
+                            artifacts_dir=str(tracking_cache_dir),
+                            save_mask_pngs=config.get("save_mask_pngs", False),
+                            ffmpeg_bin=config.get("ffmpeg_bin", "ffmpeg"),
+                            progress_callback=stage_callback(job_id, "tracking"),
+                        )
+                    copied_tracking_summary = materialize_tracking_outputs(tracking_summary, run_dir)
+                    audio_input_video_path = create_audio_aligned_segment(
+                        source_video_path=prepared["canonical_video_path"],
+                        output_video_path=str(run_dir / "audio_input" / "input_segment.mp4"),
+                        start_time_seconds=float(copied_tracking_summary.get("start_time_seconds", 0.0) or 0.0),
+                        frame_count=int(copied_tracking_summary.get("total_frames") or 0),
+                        fps=float(copied_tracking_summary.get("fps") or prepared.get("fps") or 0.0),
+                        ffmpeg_bin=config.get("ffmpeg_bin", "ffmpeg"),
+                    )
+                    final_audio_summary = run_audio_pipeline(
+                        video_path=audio_input_video_path,
+                        mask_path=copied_tracking_summary["mask_stack_path"],
+                        output_dir=str(run_dir / "audio"),
+                        clip_id=clip_id,
+                        model_size=audio_model_size,
+                        model_id=config.get("audio_model_id"),
+                        prompt_mode="visual",
+                        device=config.get("audio_device"),
+                        audio_precision=config.get("audio_precision", "auto"),
+                        predict_spans=config.get("predict_spans", False),
+                        reranking_candidates=config.get("reranking_candidates", 1),
+                        allow_placeholder=config.get("allow_placeholder_audio", False),
+                        mux_video_outputs=True,
+                        ffmpeg_bin=config.get("ffmpeg_bin", "ffmpeg"),
+                        progress_callback=stage_callback(job_id, "audio"),
+                    )
+                    final_evaluation_summary = evaluate_run(
+                        output_dir=str(run_dir / "eval"),
+                        clip_id=clip_id,
+                        model_size=audio_model_size,
+                        model_id=final_audio_summary.get("model_id"),
+                        predicted_mask_path=copied_tracking_summary["mask_stack_path"],
+                        ground_truth_mask_path=config.get("ground_truth_mask_path"),
+                        estimated_audio_path=final_audio_summary.get("target_audio_path"),
+                        reference_audio_path=config.get("reference_audio_path"),
+                        audio_metadata_path=final_audio_summary.get("metadata_path"),
+                        progress_callback=stage_callback(job_id, "evaluation"),
+                    )
+                    final_tracking_summary = copied_tracking_summary
+
                 manifest.append(
                     build_run_manifest_entry(
                         run_id=run_id,
                         run_dir=run_dir,
                         tracker_variant=tracker_variant,
                         audio_model_size=audio_model_size,
-                        tracking_summary=copied_tracking_summary,
-                        audio_summary=audio_summary,
-                        evaluation_summary=evaluation_summary,
+                        tracking_summary=final_tracking_summary,
+                        audio_summary=final_audio_summary,
+                        evaluation_summary=final_evaluation_summary,
                     )
                 )
                 completed_runs += 1
                 patch_job_state(job_id, {"completed_runs": completed_runs, "results": {"run_manifest": manifest}})
                 if config.get("release_memory_after_run", True):
                     cleanup_runtime_memory()
-                del copied_tracking_summary
-                del audio_summary
-                del evaluation_summary
 
-            del tracking_summary
+                del final_tracking_summary
+                del final_audio_summary
+                del final_evaluation_summary
+                if "segmented_result" in locals():
+                    del segmented_result
+                if "copied_tracking_summary" in locals():
+                    del copied_tracking_summary
+                if "tracking_summary" in locals():
+                    del tracking_summary
+
             if config.get("release_memory_after_run", True):
                 cleanup_runtime_memory()
 
@@ -908,6 +957,11 @@ def run_ui_job(job_id: str) -> None:
 
 def start_ui_job(config: Dict[str, Any]) -> str:
     ensure_ui_dirs()
+    validate_segment_settings(
+        bool(config.get("segment_processing", False)),
+        float(config.get("segment_length_seconds", 15.0) or 15.0),
+        float(config.get("segment_overlap_seconds", 2.0) or 2.0),
+    )
     active = get_active_job_state()
     if active is not None:
         raise RuntimeError(f"Job {active['job_id']} is already running. Wait for it to finish before starting another.")
