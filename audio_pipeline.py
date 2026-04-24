@@ -392,15 +392,22 @@ def validate_alignment(mask_bundle: Dict[str, Any], video_metadata: Dict[str, An
         )
 
     frame_span = infer_frame_span(mask_bundle.get("frame_names"))
+    alignment_adjustments = []
     if frame_span is not None:
         start_idx, end_idx = frame_span
-        expected_last = frame_count - 1
-        if start_idx != 0 or end_idx != expected_last:
+        span_length = end_idx - start_idx + 1
+        if span_length != frame_count:
             raise RuntimeError(
-                "Tracker mask frame names indicate a non-zero-based or partial segment "
-                f"({start_idx}..{end_idx}) while the supplied video has {frame_count} frames. "
+                "Tracker mask frame names indicate a discontinuous or partial segment "
+                f"({start_idx}..{end_idx}) that spans {span_length} frames, but the supplied video has {frame_count} frames. "
                 "Use the exact prepared video segment that was tracked."
             )
+        if start_idx != 0:
+            alignment_adjustments.append({
+                "type": "frame_name_offset",
+                "start_frame": int(start_idx),
+                "end_frame": int(end_idx),
+            })
 
     return {
         "frame_count": frame_count,
@@ -408,7 +415,7 @@ def validate_alignment(mask_bundle: Dict[str, Any], video_metadata: Dict[str, An
         "width": width,
         "fps": video_metadata["fps"],
         "frame_span": frame_span,
-        "alignment_adjustments": [],
+        "alignment_adjustments": alignment_adjustments,
     }
 
 
