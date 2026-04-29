@@ -43,7 +43,7 @@
     "dynamic_max": 20,
     "save_mask_pngs": true,
     "audio_model_size": "small-tv",
-    "audio_model_id": null,
+    "audio_model_id": "sam_audio_models/small-tv",
     "audio_device": null,
     "audio_precision": "fp16",
     "allow_placeholder_audio": false,
