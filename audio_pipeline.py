@@ -506,7 +506,12 @@ def lazy_import_sam_audio():
     return torch, torchaudio, SAMAudio, SAMAudioProcessor
 
 
-def resolve_audio_precision(torch_module, device: str, audio_precision: str) -> Tuple[Optional[Any], Optional[str]]:
+def resolve_audio_precision(
+    torch_module,
+    device: str,
+    audio_precision: str,
+    reranking_candidates: int = 1,
+) -> Tuple[Optional[Any], Optional[str]]:
     if audio_precision not in VALID_AUDIO_PRECISIONS:
         raise ValueError(f"audio_precision must be one of {sorted(VALID_AUDIO_PRECISIONS)}")
 
@@ -518,6 +523,8 @@ def resolve_audio_precision(torch_module, device: str, audio_precision: str) -> 
     if audio_precision == "fp16":
         return torch_module.float16, "fp16"
     if audio_precision == "bf16":
+        if reranking_candidates > 1:
+            return torch_module.float16, "fp16"
         return torch_module.bfloat16, "bf16"
 
     if torch_module.cuda.is_available():
@@ -525,6 +532,8 @@ def resolve_audio_precision(torch_module, device: str, audio_precision: str) -> 
             major = torch_module.cuda.get_device_properties(0).major
         except Exception:
             major = 0
+        if reranking_candidates > 1:
+            return torch_module.float16, "fp16"
         if major >= 8:
             return torch_module.bfloat16, "bf16"
         return torch_module.float16, "fp16"
@@ -585,7 +594,12 @@ def run_sam_audio_visual_prompt(
         model = SAMAudio.from_pretrained(model_id)
         processor = SAMAudioProcessor.from_pretrained(model_id)
         model = model.eval().to(device)
-        autocast_dtype, effective_precision = resolve_audio_precision(torch, device, audio_precision)
+        autocast_dtype, effective_precision = resolve_audio_precision(
+            torch,
+            device,
+            audio_precision,
+            reranking_candidates=reranking_candidates,
+        )
 
         frames = load_video_frames(
             video_path,

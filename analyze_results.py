@@ -28,6 +28,7 @@ AGGREGATE_FIELDNAMES = [
     "job_id",
     "display_label",
     "clip_id",
+    "motion_level",
     "tracker_variant_key",
     "tracker_variant_label",
     "audio_model_size",
@@ -139,6 +140,7 @@ def derive_row(
         "job_id": metadata.get("job_id") or infer_job_id_from_run_dir(run_dir),
         "display_label": display_label,
         "clip_id": clip_id,
+        "motion_level": metadata.get("motion_level"),
         "tracker_variant_key": tracker_variant_key,
         "tracker_variant_label": tracker_variant_label,
         "audio_model_size": audio_model_size,
@@ -339,6 +341,31 @@ def model_comparison_plot(rows: List[Dict[str, object]], metric_key: str, output
     return True
 
 
+def categorical_mean_plot(rows: List[Dict[str, object]], category_key: str, metric_key: str, output_path: str) -> bool:
+    grouped = {}
+    for row in rows:
+        category = row.get(category_key)
+        value = safe_float(row.get(metric_key))
+        if category in (None, "") or value is None:
+            continue
+        grouped.setdefault(str(category), []).append(value)
+    if not grouped:
+        write_placeholder_plot(output_path, f"{category_key} vs {metric_key}", "No valid runs contained this metric.")
+        return False
+
+    categories = sorted(grouped)
+    means = [float(np.mean(grouped[category])) for category in categories]
+    plt.figure(figsize=(8, 5))
+    plt.bar(categories, means)
+    plt.xlabel(category_key)
+    plt.ylabel(metric_key)
+    plt.xticks(rotation=30, ha="right")
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150)
+    plt.close()
+    return True
+
+
 def analyze_results(
     experiment_root: Optional[str],
     output_dir: str | None,
@@ -364,7 +391,14 @@ def analyze_results(
 
     scatter_plot(rows, "mean_motion", "mean_iou", str(out_dir / "motion_vs_iou.png"))
     scatter_plot(rows, "mean_motion", "si_sdr", str(out_dir / "motion_vs_si_sdr.png"))
+    scatter_plot(rows, "mean_iou", "si_sdr", str(out_dir / "iou_vs_si_sdr.png"))
+    scatter_plot(rows, "mean_mask_coverage", "si_sdr", str(out_dir / "coverage_vs_si_sdr.png"))
     scatter_plot(rows, "mean_mask_coverage", "pure_fps", str(out_dir / "coverage_vs_fps.png"))
+    categorical_mean_plot(rows, "motion_level", "mean_iou", str(out_dir / "motion_level_mean_iou.png"))
+    categorical_mean_plot(rows, "motion_level", "si_sdr", str(out_dir / "motion_level_si_sdr.png"))
+    categorical_mean_plot(rows, "tracker_variant_label", "mean_iou", str(out_dir / "tracker_mean_iou.png"))
+    categorical_mean_plot(rows, "tracker_variant_label", "si_sdr", str(out_dir / "tracker_si_sdr.png"))
+    categorical_mean_plot(rows, "audio_model_size", "si_sdr", str(out_dir / "audio_model_si_sdr.png"))
     model_comparison_plot(rows, "mean_iou", str(out_dir / "model_mean_iou.png"))
     model_comparison_plot(rows, "si_sdr", str(out_dir / "model_si_sdr.png"))
     correlation_outputs(rows, str(out_dir))

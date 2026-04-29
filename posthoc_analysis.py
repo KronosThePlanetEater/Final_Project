@@ -95,6 +95,7 @@ def build_candidate_entry(
         "run_id": run_id,
         "job_id": metadata.get("job_id") or infer_job_id_from_run_dir(run_dir),
         "clip_id": clip_id,
+        "motion_level": metadata.get("motion_level"),
         "display_label": display_label,
         "tracker_variant_key": tracker_variant_key,
         "tracker_variant_label": tracker_variant_label,

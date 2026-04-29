@@ -19,9 +19,12 @@ from ui_backend import (
     TRACKER_PRESETS,
     VALID_AUDIO_MODEL_SIZES,
     create_posthoc_analysis_set,
+    enqueue_ui_job,
+    enqueue_ui_jobs,
     format_run_label,
     get_active_job_state,
     get_latest_job_state,
+    get_queue_state,
     get_recent_analysis_set_ids,
     get_recent_job_ids,
     list_ground_truth_mask_files,
@@ -34,7 +37,9 @@ from ui_backend import (
     load_selection_frame,
     preview_initial_mask,
     parse_selection_objects,
+    remove_queued_job,
     start_ui_job,
+    start_queue_worker_if_needed,
     summarize_job_outputs,
 )
 
@@ -90,9 +95,67 @@ def compat_column_button(column, *args, **kwargs):
         return column.button(*args, **kwargs)
 
 
+def compat_download_button(column, *args, **kwargs):
+    try:
+        return column.download_button(*args, **kwargs)
+    except TypeError:
+        kwargs.pop("use_container_width", None)
+        return column.download_button(*args, **kwargs)
+
+
 def render_metric(label: str, value: Any) -> None:
     display_value = "-" if value in (None, "", []) else value
     st.metric(label, display_value)
+
+
+def render_compact_kv(rows: list[tuple[str, Any]]) -> None:
+    if not rows:
+        return
+    items = []
+    for label, value in rows:
+        display_value = "-" if value in (None, "", []) else value
+        items.append(
+            "<div class='compact-kv-item'>"
+            f"<div class='compact-kv-label'>{label}</div>"
+            f"<div class='compact-kv-value'>{display_value}</div>"
+            "</div>"
+        )
+    st.markdown(
+        """
+        <style>
+        .compact-kv-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            gap: 0.45rem 0.65rem;
+            margin: 0.25rem 0 0.75rem 0;
+        }
+        .compact-kv-item {
+            border: 1px solid rgba(49, 51, 63, 0.14);
+            border-radius: 0.45rem;
+            padding: 0.45rem 0.55rem;
+            background: rgba(250, 250, 250, 0.72);
+        }
+        .compact-kv-label {
+            color: rgba(49, 51, 63, 0.62);
+            font-size: 0.68rem;
+            font-weight: 600;
+            line-height: 1.1;
+            text-transform: uppercase;
+            letter-spacing: 0.025em;
+            margin-bottom: 0.15rem;
+        }
+        .compact-kv-value {
+            color: rgb(49, 51, 63);
+            font-size: 0.82rem;
+            font-weight: 500;
+            line-height: 1.2;
+            overflow-wrap: anywhere;
+        }
+        </style>
+        """
+        + f"<div class='compact-kv-grid'>{''.join(items)}</div>",
+        unsafe_allow_html=True,
+    )
 
 
 def format_seconds(value: Any) -> str:
@@ -248,6 +311,10 @@ def list_local_audio_model_ids() -> list[str]:
 
 def ensure_session_defaults() -> None:
     st.session_state.setdefault("ui_selection", None)
+    st.session_state.setdefault("selection_config", None)
+    st.session_state.setdefault("selection_config_error", None)
+    st.session_state.setdefault("queue_manifest", None)
+    st.session_state.setdefault("queue_manifest_error", None)
     st.session_state.setdefault("last_job_id", None)
     st.session_state.setdefault("selection_mode", "point")
     st.session_state.setdefault("scale", 1.0)
@@ -294,6 +361,186 @@ def selection_summary(selection: Optional[Dict[str, Any]]) -> str:
     return f"Points: {selection.get('points', [])}"
 
 
+def normalize_selection_payload(selection: Any, label: str = "selection") -> Dict[str, Any]:
+    if not isinstance(selection, dict):
+        raise ValueError(f"{label} must be an object.")
+    mode = selection.get("mode")
+    if mode == "bbox":
+        bbox = selection.get("bbox")
+        if not isinstance(bbox, list) or len(bbox) != 4:
+            raise ValueError(f"{label}.bbox must contain exactly four numbers.")
+        try:
+            normalized_bbox = [float(value) for value in bbox]
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{label}.bbox must contain only numeric values.") from exc
+        return {"mode": "bbox", "bbox": normalized_bbox}
+
+    if mode == "point":
+        points = selection.get("points")
+        labels = selection.get("labels")
+        if not isinstance(points, list) or not isinstance(labels, list) or len(points) != len(labels):
+            raise ValueError(f"{label}.points and {label}.labels must be equal-length lists.")
+        normalized_points = []
+        normalized_labels = []
+        for index, point in enumerate(points):
+            if not isinstance(point, list) or len(point) != 2:
+                raise ValueError(f"{label}.points[{index}] must contain exactly two numbers.")
+            try:
+                normalized_points.append([float(point[0]), float(point[1])])
+                normalized_labels.append(int(labels[index]))
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"{label}.points and {label}.labels must contain numeric values.") from exc
+        if not normalized_points:
+            raise ValueError(f"{label}.points must contain at least one point.")
+        return {"mode": "point", "points": normalized_points, "labels": normalized_labels}
+
+    raise ValueError(f"{label}.mode must be either 'bbox' or 'point'.")
+
+
+def parse_selection_config_bytes(raw_bytes: bytes) -> Dict[str, Any]:
+    try:
+        payload = json.loads(raw_bytes.decode("utf-8"))
+    except Exception as exc:
+        raise ValueError("Selection config must be valid UTF-8 JSON.") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("Selection config root must be a JSON object.")
+    selections = payload.get("selections")
+    if not isinstance(selections, dict) or not selections:
+        raise ValueError("Selection config must contain a non-empty 'selections' object.")
+    normalized = {
+        str(key): normalize_selection_payload(value, label=f"selections.{key}")
+        for key, value in selections.items()
+    }
+    return {"version": int(payload.get("version", 1) or 1), "selections": normalized}
+
+
+def find_config_selection(selection_config: Optional[Dict[str, Any]], video_name: Optional[str]) -> Optional[Dict[str, Any]]:
+    if not selection_config or not video_name:
+        return None
+    selections = selection_config.get("selections") or {}
+    if video_name in selections:
+        return selections[video_name]
+    stem = Path(video_name).stem
+    return selections.get(stem)
+
+
+def build_selection_config_download(video_name: Optional[str], selection: Optional[Dict[str, Any]]) -> str:
+    key = video_name or "video_name_or_clip_id"
+    payload = {
+        "version": 1,
+        "selections": {
+            key: selection or {"mode": "bbox", "bbox": [100, 120, 420, 560]},
+        },
+    }
+    return json.dumps(payload, indent=2)
+
+
+DEFAULT_QUEUE_JOB_CONFIG: Dict[str, Any] = {
+    "selection_mode": "point",
+    "checkpoint_path": "checkpoints/sam2.1_hiera_tiny.pt",
+    "config_path": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "start_time": 0.0,
+    "scale": 1.0,
+    "max_frames": None,
+    "run_mode": "single",
+    "single_tracker_preset": "dynamic_optical_flow",
+    "dynamic_min": 2,
+    "dynamic_max": 20,
+    "tracker_variants": [],
+    "save_mask_pngs": True,
+    "audio_model_size": "small-tv",
+    "audio_model_sizes": [],
+    "audio_model_id": None,
+    "audio_device": None,
+    "audio_precision": "auto",
+    "predict_spans": False,
+    "reranking_candidates": 1,
+    "allow_placeholder_audio": False,
+    "release_memory_after_run": True,
+    "reference_audio_path": None,
+    "ground_truth_mask_path": None,
+    "target_fps": None,
+    "target_width": None,
+    "target_height": None,
+    "ffmpeg_bin": "ffmpeg",
+    "segment_processing": False,
+    "segment_length_seconds": 15.0,
+    "segment_overlap_seconds": 2.0,
+}
+
+
+def normalize_queue_job_config(job: Any, defaults: Optional[Dict[str, Any]] = None, index: int = 0) -> Dict[str, Any]:
+    if not isinstance(job, dict):
+        raise ValueError(f"jobs[{index}] must be an object.")
+    merged = dict(DEFAULT_QUEUE_JOB_CONFIG)
+    if defaults:
+        merged.update(defaults)
+    merged.update(job)
+    if not merged.get("video_name"):
+        raise ValueError(f"jobs[{index}].video_name is required.")
+    merged["selection"] = normalize_selection_payload(merged.get("selection"), label=f"jobs[{index}].selection")
+    merged["selection_mode"] = merged.get("selection_mode") or merged["selection"].get("mode", "point")
+    merged["start_time"] = float(merged.get("start_time") or 0.0)
+    merged["scale"] = float(merged.get("scale") or 1.0)
+    merged["max_frames"] = parse_optional_int(merged.get("max_frames"))
+    merged["dynamic_min"] = int(merged.get("dynamic_min") or 2)
+    merged["dynamic_max"] = int(merged.get("dynamic_max") or 20)
+    merged["reranking_candidates"] = int(merged.get("reranking_candidates") or 1)
+    merged["segment_length_seconds"] = float(merged.get("segment_length_seconds") or 15.0)
+    merged["segment_overlap_seconds"] = float(merged.get("segment_overlap_seconds") or 2.0)
+    for key in ["predict_spans", "allow_placeholder_audio", "release_memory_after_run", "save_mask_pngs", "segment_processing"]:
+        merged[key] = bool(merged.get(key))
+    return merged
+
+
+def parse_queue_manifest_bytes(raw_bytes: bytes) -> Dict[str, Any]:
+    try:
+        payload = json.loads(raw_bytes.decode("utf-8"))
+    except Exception as exc:
+        raise ValueError("Queue manifest must be valid UTF-8 JSON.") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("Queue manifest root must be a JSON object.")
+    jobs = payload.get("jobs")
+    if not isinstance(jobs, list) or not jobs:
+        raise ValueError("Queue manifest must contain a non-empty 'jobs' list.")
+    defaults = payload.get("defaults") or {}
+    if not isinstance(defaults, dict):
+        raise ValueError("Queue manifest 'defaults' must be an object when provided.")
+    normalized_jobs = [
+        normalize_queue_job_config(job, defaults=defaults, index=index)
+        for index, job in enumerate(jobs)
+    ]
+    return {
+        "version": int(payload.get("version", 1) or 1),
+        "motion_type": payload.get("motion_type"),
+        "jobs": normalized_jobs,
+    }
+
+
+def build_queue_manifest_template(video_name: Optional[str], selection: Optional[Dict[str, Any]]) -> str:
+    job = dict(DEFAULT_QUEUE_JOB_CONFIG)
+    job.update({
+        "video_name": video_name or "video_name.mp4",
+        "selection": selection or {"mode": "bbox", "bbox": [100, 120, 420, 560]},
+        "selection_mode": (selection or {}).get("mode", "bbox"),
+        "audio_precision": "fp16",
+        "reranking_candidates": 1,
+    })
+    payload = {
+        "version": 1,
+        "motion_type": "low",
+        "defaults": {
+            "checkpoint_path": "checkpoints/sam2.1_hiera_tiny.pt",
+            "config_path": "configs/sam2.1/sam2.1_hiera_t.yaml",
+            "segment_processing": False,
+            "segment_length_seconds": 15.0,
+            "segment_overlap_seconds": 2.0,
+        },
+        "jobs": [job],
+    }
+    return json.dumps(payload, indent=2)
+
+
 def build_preview_signature(video_name: Optional[str], selection: Optional[Dict[str, Any]]) -> Optional[str]:
     if not video_name or not selection:
         return None
@@ -309,7 +556,7 @@ def build_preview_signature(video_name: Optional[str], selection: Optional[Dict[
     return json.dumps(payload, sort_keys=True)
 
 
-def prepare_canvas_image(image: Image.Image, max_width: int = 900) -> tuple[Image.Image, float, float]:
+def prepare_canvas_image(image: Image.Image, max_width: int = 640) -> tuple[Image.Image, float, float]:
     if image.width <= max_width:
         return image, 1.0, 1.0
     ratio = max_width / image.width
@@ -355,6 +602,54 @@ def build_job_config(video_name: str) -> Dict[str, Any]:
         "segment_length_seconds": float(st.session_state.get("segment_length_seconds", 15.0) or 15.0),
         "segment_overlap_seconds": float(st.session_state.get("segment_overlap_seconds", 2.0) or 2.0),
     }
+
+
+def render_selection_config_controls(video_name: Optional[str]) -> None:
+    st.markdown("**Selection Config**")
+    uploaded = st.file_uploader(
+        "Upload selection config",
+        type=["json"],
+        key="selection_config_upload",
+        help="Load saved point or bbox selections keyed by input filename or clip id.",
+    )
+    if uploaded is not None:
+        try:
+            st.session_state["selection_config"] = parse_selection_config_bytes(uploaded.getvalue())
+            st.session_state["selection_config_error"] = None
+        except Exception as exc:
+            st.session_state["selection_config"] = None
+            st.session_state["selection_config_error"] = str(exc)
+
+    if st.session_state.get("selection_config_error"):
+        st.error(st.session_state["selection_config_error"])
+
+    selection_config = st.session_state.get("selection_config")
+    config_selection = find_config_selection(selection_config, video_name)
+    if selection_config:
+        count = len(selection_config.get("selections") or {})
+        st.caption(f"Loaded {count} saved selection{'s' if count != 1 else ''}.")
+        if config_selection:
+            st.info(selection_summary(config_selection))
+        else:
+            st.warning("No matching selection found for this video.")
+
+    cols = st.columns(2)
+    if compat_column_button(cols[0], "Apply config selection", use_container_width=True, disabled=config_selection is None):
+        st.session_state["ui_selection"] = config_selection
+        st.session_state["selection_mode"] = config_selection.get("mode", st.session_state.get("selection_mode", "point"))
+        clear_preview_state()
+        rerun_app()
+
+    export_payload = build_selection_config_download(video_name, st.session_state.get("ui_selection"))
+    compat_download_button(
+        cols[1],
+        "Export current selection",
+        data=export_payload,
+        file_name=f"{Path(video_name or 'selection').stem}_selection_config.json",
+        mime="application/json",
+        use_container_width=True,
+        disabled=st.session_state.get("ui_selection") is None,
+    )
 
 
 def render_tracker_controls() -> None:
@@ -478,9 +773,12 @@ def render_left_panel(video_name: Optional[str], active_job: Optional[Dict[str, 
         )
 
     st.info(selection_summary(st.session_state.get("ui_selection")))
-    disabled = active_job is not None or st.session_state.get("ui_selection") is None
-    button_label = "Start comparison run" if st.session_state.get("run_mode") == "comparison" else "Start pipeline run"
-    if compat_button(button_label, type="primary", disabled=disabled, use_container_width=True):
+    queue_state = get_queue_state()
+    queue_busy = bool(active_job) or bool(queue_state.get("queued")) or bool(queue_state.get("worker_running"))
+    missing_selection = st.session_state.get("ui_selection") is None
+    button_label = "Start comparison now" if st.session_state.get("run_mode") == "comparison" else "Start now"
+    start_col, queue_col = st.columns(2)
+    if compat_column_button(start_col, button_label, type="primary", disabled=queue_busy or missing_selection, use_container_width=True):
         config = build_job_config(video_name)
         try:
             job_id = start_ui_job(config)
@@ -490,6 +788,18 @@ def render_left_panel(video_name: Optional[str], active_job: Optional[Dict[str, 
             rerun_app()
         except Exception as exc:
             st.error(str(exc))
+    if compat_column_button(queue_col, "Add to queue", disabled=missing_selection, use_container_width=True):
+        config = build_job_config(video_name)
+        try:
+            job_id = enqueue_ui_job(config)
+            clear_preview_state()
+            st.session_state["last_job_id"] = job_id
+            st.success(f"Queued job {job_id}")
+            rerun_app()
+        except Exception as exc:
+            st.error(str(exc))
+    if queue_busy:
+        st.caption("Use the queue while another job is active or waiting.")
     if active_job is not None:
         st.warning(f"Job {active_job['job_id']} is currently running.")
 
@@ -511,10 +821,11 @@ def render_center_panel(video_name: Optional[str]) -> None:
         return
 
     image = frame_info["image"]
-    render_image, scale_x, scale_y = prepare_canvas_image(image)
+    render_image, scale_x, scale_y = prepare_canvas_image(image, max_width=640)
+    st.caption(f"Selection preview: {render_image.width}x{render_image.height}px")
 
     if st_canvas is None:
-        st.image(render_image, caption="Install streamlit-drawable-canvas to enable click/box selection.")
+        st.image(render_image, caption="Install streamlit-drawable-canvas to enable click/box selection.", use_column_width=False)
         st.warning("Missing dependency: streamlit-drawable-canvas")
         return
 
@@ -528,7 +839,7 @@ def render_center_panel(video_name: Optional[str]) -> None:
         height=render_image.height,
         width=render_image.width,
         drawing_mode=drawing_mode,
-        key=f"selection-canvas-{video_name}-{drawing_mode}-{st.session_state.get('scale')}-{st.session_state.get('start_time')}",
+        key=f"selection-canvas-{video_name}-{drawing_mode}-{st.session_state.get('scale')}-{st.session_state.get('start_time')}-{render_image.width}",
     )
 
     selection = None
@@ -542,6 +853,8 @@ def render_center_panel(video_name: Optional[str]) -> None:
 
     selection_for_preview = selection or st.session_state.get("ui_selection")
     current_preview_signature = build_preview_signature(video_name, selection_for_preview)
+
+    render_selection_config_controls(video_name)
 
     cols = st.columns(3)
     if compat_column_button(cols[0], "Use current selection", use_container_width=True, disabled=selection is None):
@@ -595,17 +908,21 @@ def render_right_panel(job_state: Optional[Dict[str, Any]]) -> None:
 
     show_progress(float(job_state.get("overall_progress", 0.0) or 0.0), text=f"Overall progress: {job_state.get('status', 'idle')}")
     st.caption(f"Job ID: {job_state['job_id']}")
-    render_metric("Status", job_state.get("status"))
-    render_metric("Stage", job_state.get("current_stage"))
-    render_metric("Clip", job_state.get("clip_id"))
-    render_metric("Completed runs", f"{job_state.get('completed_runs', 0)}/{job_state.get('planned_runs', 0)}")
+    render_compact_kv([
+        ("Status", job_state.get("status")),
+        ("Stage", job_state.get("current_stage")),
+        ("Clip", job_state.get("clip_id")),
+        ("Completed runs", f"{job_state.get('completed_runs', 0)}/{job_state.get('planned_runs', 0)}"),
+    ])
 
     current_run = job_state.get("current_run") or {}
     if current_run:
-        st.markdown("**Current variant**")
-        render_metric("Variant", current_run.get("label"))
-        render_metric("Tracker", current_run.get("tracker_variant"))
-        render_metric("Audio model", current_run.get("audio_model"))
+        st.caption("Current variant")
+        render_compact_kv([
+            ("Variant", current_run.get("label")),
+            ("Tracker", current_run.get("tracker_variant")),
+            ("Audio model", current_run.get("audio_model")),
+        ])
 
     current_stage = job_state.get("current_stage")
     if current_stage:
@@ -620,6 +937,86 @@ def render_right_panel(job_state: Optional[Dict[str, Any]]) -> None:
 
     if job_state.get("error_message"):
         st.error(job_state["error_message"])
+
+
+def render_queue_panel(queue_state: Dict[str, Any]) -> None:
+    draw_divider()
+    st.subheader("Queue")
+    running = queue_state.get("running")
+    queued = queue_state.get("queued") or []
+    history = queue_state.get("history") or []
+
+    uploaded = st.file_uploader(
+        "Import queue manifest",
+        type=["json"],
+        key="queue_manifest_upload",
+        help="Load a full list of queued job configs. Use one file per motion type if that matches your experiment setup.",
+    )
+    if uploaded is not None:
+        try:
+            st.session_state["queue_manifest"] = parse_queue_manifest_bytes(uploaded.getvalue())
+            st.session_state["queue_manifest_error"] = None
+        except Exception as exc:
+            st.session_state["queue_manifest"] = None
+            st.session_state["queue_manifest_error"] = str(exc)
+
+    if st.session_state.get("queue_manifest_error"):
+        st.error(st.session_state["queue_manifest_error"])
+
+    manifest = st.session_state.get("queue_manifest")
+    import_cols = st.columns(2)
+    if manifest:
+        motion_label = f" for {manifest.get('motion_type')}" if manifest.get("motion_type") else ""
+        import_cols[0].caption(f"Loaded {len(manifest.get('jobs', []))} queued job configs{motion_label}.")
+    if compat_column_button(import_cols[0], "Add manifest to queue", disabled=not manifest, use_container_width=True):
+        try:
+            job_ids = enqueue_ui_jobs(manifest["jobs"])
+            st.session_state["last_job_id"] = job_ids[0] if job_ids else st.session_state.get("last_job_id")
+            st.success(f"Queued {len(job_ids)} jobs from manifest.")
+            rerun_app()
+        except Exception as exc:
+            st.error(str(exc))
+    compat_download_button(
+        import_cols[1],
+        "Download queue template",
+        data=build_queue_manifest_template(None, None),
+        file_name="motion_queue_manifest_template.json",
+        mime="application/json",
+        use_container_width=True,
+    )
+
+    if running:
+        st.caption(f"Running: {running.get('job_id')} ({running.get('clip_id')})")
+    elif queue_state.get("worker_running"):
+        st.caption(f"Queue worker active: PID {queue_state.get('worker_pid')}")
+
+    if queued:
+        st.markdown("**Waiting**")
+        for item in queued:
+            cols = st.columns([0.25, 1.0, 0.55])
+            cols[0].caption(f"#{item.get('position')}")
+            cols[1].caption(f"{item.get('job_id')} | {item.get('clip_id')}")
+            if compat_column_button(cols[2], "Remove", key=f"remove-queued-{item.get('job_id')}", use_container_width=True):
+                try:
+                    remove_queued_job(item["job_id"])
+                    rerun_app()
+                except Exception as exc:
+                    st.error(str(exc))
+    elif not running and not queue_state.get("worker_running"):
+        st.info("Queue is empty.")
+
+    if history:
+        st.markdown("**Recent queue results**")
+        rows = [
+            {
+                "Job": item.get("job_id"),
+                "Clip": item.get("clip_id"),
+                "Status": item.get("status"),
+                "Done": f"{item.get('completed_runs', 0)}/{item.get('planned_runs', 0)}",
+            }
+            for item in history[:5]
+        ]
+        render_html_table(rows, columns=["Job", "Clip", "Status", "Done"])
 
 
 def render_results_panel(job_state: Optional[Dict[str, Any]]) -> None:
@@ -849,6 +1246,11 @@ def main() -> None:
 
     videos = list_input_videos()
     active_job = get_active_job_state()
+    queue_state = get_queue_state()
+    if active_job is None and queue_state.get("queued"):
+        start_queue_worker_if_needed()
+        queue_state = get_queue_state()
+        active_job = get_active_job_state()
     recent_job_ids = get_recent_job_ids(limit=20)
 
     header_cols = st.columns([1.5, 1.0])
@@ -900,6 +1302,7 @@ def main() -> None:
             render_center_panel(video_name)
         with right:
             render_right_panel(job_state)
+            render_queue_panel(queue_state)
 
     with outputs_tab:
         render_results_panel(job_state)
@@ -907,7 +1310,7 @@ def main() -> None:
     with posthoc_tab:
         render_posthoc_analysis_panel()
 
-    if active_job is not None:
+    if active_job is not None or queue_state.get("queued") or queue_state.get("worker_running"):
         time.sleep(2)
         rerun_app()
 

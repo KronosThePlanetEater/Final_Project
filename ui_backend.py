@@ -35,6 +35,8 @@ VIDEO_SUFFIXES = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
 AUDIO_SUFFIXES = {".wav", ".mp3", ".flac", ".m4a"}
 MASK_SUFFIXES = {".npy", ".npz"}
 JOB_ROOT = OUTPUT_ROOT / "ui_runs"
+QUEUE_ROOT = OUTPUT_ROOT / "ui_queue"
+QUEUE_STATE_PATH = QUEUE_ROOT / "queue_state.json"
 VALID_AUDIO_MODEL_SIZES = ["small-tv", "small", "base-tv", "base", "large-tv", "large"]
 TRACKER_PRESETS = {
     "dynamic_optical_flow": "Dynamic SAM + Optical Flow",
@@ -84,6 +86,7 @@ def cleanup_runtime_memory() -> Dict[str, Any]:
 def ensure_ui_dirs() -> None:
     ensure_standard_directories()
     JOB_ROOT.mkdir(parents=True, exist_ok=True)
+    QUEUE_ROOT.mkdir(parents=True, exist_ok=True)
 
 
 def list_input_files(suffixes: set[str]) -> List[str]:
@@ -464,9 +467,260 @@ def get_latest_job_state() -> Optional[Dict[str, Any]]:
 def get_active_job_state() -> Optional[Dict[str, Any]]:
     for job_id in get_recent_job_ids(limit=25):
         state = load_job_state(job_id)
-        if state and state.get("status") in {"queued", "running"}:
+        if state and state.get("status") == "running":
             return state
     return None
+
+
+def default_queue_state() -> Dict[str, Any]:
+    return {
+        "version": 1,
+        "queued_job_ids": [],
+        "history_job_ids": [],
+        "worker_pid": None,
+        "worker_started_at": None,
+        "updated_at": iso_utc_now(),
+    }
+
+
+def load_queue_state_raw() -> Dict[str, Any]:
+    ensure_ui_dirs()
+    if not QUEUE_STATE_PATH.exists():
+        return default_queue_state()
+    try:
+        payload = read_json(QUEUE_STATE_PATH)
+    except Exception:
+        return default_queue_state()
+    state = default_queue_state()
+    state.update(payload)
+    state["queued_job_ids"] = list(dict.fromkeys(str(job_id) for job_id in state.get("queued_job_ids", [])))
+    state["history_job_ids"] = list(dict.fromkeys(str(job_id) for job_id in state.get("history_job_ids", [])))
+    return state
+
+
+def save_queue_state_raw(state: Dict[str, Any]) -> Dict[str, Any]:
+    ensure_ui_dirs()
+    state["updated_at"] = iso_utc_now()
+    write_json_atomic(QUEUE_STATE_PATH, state)
+    return state
+
+
+def is_process_running(pid: Optional[int]) -> bool:
+    if not pid:
+        return False
+    try:
+        if os.name == "nt":
+            result = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {int(pid)}"],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            return str(pid) in result.stdout
+        os.kill(int(pid), 0)
+        return True
+    except Exception:
+        return False
+
+
+def compact_queue_state(raw_state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    state = raw_state or load_queue_state_raw()
+    queued_job_ids = []
+    history_job_ids = []
+    for job_id in state.get("queued_job_ids", []):
+        job_state = load_job_state(job_id)
+        if not job_state:
+            continue
+        if job_state.get("status") == "queued":
+            queued_job_ids.append(job_id)
+        elif job_state.get("status") in {"completed", "failed", "cancelled"}:
+            history_job_ids.append(job_id)
+    for job_id in state.get("history_job_ids", []):
+        job_state = load_job_state(job_id)
+        if job_state and job_state.get("status") in {"completed", "failed", "cancelled"}:
+            history_job_ids.append(job_id)
+    state["queued_job_ids"] = list(dict.fromkeys(queued_job_ids))
+    state["history_job_ids"] = list(dict.fromkeys(history_job_ids))[-25:]
+    if state.get("worker_pid") and not is_process_running(state.get("worker_pid")):
+        state["worker_pid"] = None
+        state["worker_started_at"] = None
+    return save_queue_state_raw(state)
+
+
+def summarize_queue_job(job_id: str, position: Optional[int] = None) -> Dict[str, Any]:
+    state = load_job_state(job_id) or {"job_id": job_id, "status": "missing"}
+    config = state.get("config", {}) or {}
+    return {
+        "job_id": job_id,
+        "status": state.get("status"),
+        "position": position,
+        "clip_id": state.get("clip_id") or Path(config.get("video_name", job_id)).stem,
+        "video_name": config.get("video_name"),
+        "run_mode": config.get("run_mode"),
+        "planned_runs": state.get("planned_runs"),
+        "completed_runs": state.get("completed_runs"),
+        "updated_at": state.get("updated_at"),
+        "error_message": state.get("error_message"),
+    }
+
+
+def get_queue_state() -> Dict[str, Any]:
+    state = compact_queue_state()
+    running = get_active_job_state()
+    queued = [
+        summarize_queue_job(job_id, position=index + 1)
+        for index, job_id in enumerate(state.get("queued_job_ids", []))
+    ]
+    history_ids = list(reversed(state.get("history_job_ids", [])[-10:]))
+    return {
+        "version": state.get("version", 1),
+        "worker_pid": state.get("worker_pid"),
+        "worker_running": is_process_running(state.get("worker_pid")),
+        "worker_started_at": state.get("worker_started_at"),
+        "updated_at": state.get("updated_at"),
+        "running": summarize_queue_job(running["job_id"]) if running else None,
+        "queued": queued,
+        "history": [summarize_queue_job(job_id) for job_id in history_ids],
+    }
+
+
+def validate_ui_job_config(config: Dict[str, Any]) -> None:
+    selection = config.get("selection")
+    if not selection:
+        raise RuntimeError("A valid selection is required before starting or queueing a job.")
+    if not isinstance(selection, dict):
+        raise RuntimeError("Selection must be a JSON object.")
+    mode = selection.get("mode")
+    if mode == "bbox":
+        bbox = selection.get("bbox")
+        if not isinstance(bbox, list) or len(bbox) != 4:
+            raise RuntimeError("BBox selection must contain exactly four numeric values.")
+        [float(value) for value in bbox]
+    elif mode == "point":
+        points = selection.get("points")
+        labels = selection.get("labels")
+        if not isinstance(points, list) or not isinstance(labels, list) or len(points) != len(labels) or not points:
+            raise RuntimeError("Point selection must contain equal-length non-empty points and labels lists.")
+    else:
+        raise RuntimeError("Selection mode must be either 'point' or 'bbox'.")
+    selection_from_dict(selection)
+    validate_segment_settings(
+        bool(config.get("segment_processing", False)),
+        float(config.get("segment_length_seconds", 15.0) or 15.0),
+        float(config.get("segment_overlap_seconds", 2.0) or 2.0),
+    )
+
+
+def start_queue_worker_if_needed() -> Optional[int]:
+    state = compact_queue_state()
+    if not state.get("queued_job_ids"):
+        return None
+    if get_active_job_state() is not None:
+        return None
+    if state.get("worker_pid") and is_process_running(state.get("worker_pid")):
+        return int(state["worker_pid"])
+
+    worker_script = Path(__file__).resolve().parent / "queue_worker.py"
+    popen_kwargs = {"cwd": str(Path(__file__).resolve().parent)}
+    if os.name == "nt":
+        popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    process = subprocess.Popen([sys.executable, str(worker_script)], **popen_kwargs)
+    state["worker_pid"] = int(process.pid)
+    state["worker_started_at"] = iso_utc_now()
+    save_queue_state_raw(state)
+    return int(process.pid)
+
+
+def enqueue_ui_job(config: Dict[str, Any]) -> str:
+    ensure_ui_dirs()
+    validate_ui_job_config(config)
+    job_id = generate_job_id(config)
+    initial_state = build_initial_job_state(job_id, config)
+    save_job_state(job_id, initial_state)
+
+    state = compact_queue_state()
+    queued = state.setdefault("queued_job_ids", [])
+    if job_id not in queued:
+        queued.append(job_id)
+    save_queue_state_raw(state)
+    start_queue_worker_if_needed()
+    return job_id
+
+
+def enqueue_ui_jobs(configs: List[Dict[str, Any]]) -> List[str]:
+    ensure_ui_dirs()
+    if not configs:
+        raise RuntimeError("Queue manifest did not contain any jobs.")
+    for config in configs:
+        validate_ui_job_config(config)
+
+    state = compact_queue_state()
+    queued = state.setdefault("queued_job_ids", [])
+    job_ids: List[str] = []
+    for config in configs:
+        job_id = generate_job_id(config)
+        initial_state = build_initial_job_state(job_id, config)
+        save_job_state(job_id, initial_state)
+        queued.append(job_id)
+        job_ids.append(job_id)
+    state["queued_job_ids"] = list(dict.fromkeys(queued))
+    save_queue_state_raw(state)
+    start_queue_worker_if_needed()
+    return job_ids
+
+
+def remove_queued_job(job_id: str) -> Dict[str, Any]:
+    state = compact_queue_state()
+    job_state = load_job_state(job_id)
+    if not job_state or job_state.get("status") != "queued":
+        raise RuntimeError("Only jobs that are still queued can be removed.")
+    state["queued_job_ids"] = [queued_id for queued_id in state.get("queued_job_ids", []) if queued_id != job_id]
+    state["history_job_ids"] = list(dict.fromkeys([*state.get("history_job_ids", []), job_id]))[-25:]
+    save_queue_state_raw(state)
+    patch_job_state(job_id, {"status": "cancelled", "finished_at": iso_utc_now(), "error_message": "Removed from queue before starting."})
+    return get_queue_state()
+
+
+def pop_next_queued_job_id() -> Optional[str]:
+    state = compact_queue_state()
+    if get_active_job_state() is not None:
+        return None
+    queued = list(state.get("queued_job_ids", []))
+    if not queued:
+        return None
+    job_id = queued.pop(0)
+    state["queued_job_ids"] = queued
+    save_queue_state_raw(state)
+    return job_id
+
+
+def record_queue_history(job_id: str) -> None:
+    state = compact_queue_state()
+    state["queued_job_ids"] = [queued_id for queued_id in state.get("queued_job_ids", []) if queued_id != job_id]
+    state["history_job_ids"] = list(dict.fromkeys([*state.get("history_job_ids", []), job_id]))[-25:]
+    save_queue_state_raw(state)
+
+
+def run_next_queued_job() -> Optional[str]:
+    job_id = pop_next_queued_job_id()
+    if job_id is None:
+        return None
+    try:
+        run_ui_job(job_id)
+    finally:
+        record_queue_history(job_id)
+    return job_id
+
+
+def run_queue_until_empty() -> None:
+    while True:
+        job_id = run_next_queued_job()
+        if job_id is None:
+            break
+    state = compact_queue_state()
+    state["worker_pid"] = None
+    state["worker_started_at"] = None
+    save_queue_state_raw(state)
 
 
 def list_posthoc_runs_by_clip() -> Dict[str, List[Dict[str, Any]]]:
@@ -691,10 +945,12 @@ def build_run_manifest_entry(
     tracking_summary: Dict[str, Any],
     audio_summary: Dict[str, Any],
     evaluation_summary: Dict[str, Any],
+    motion_level: Optional[str] = None,
 ) -> Dict[str, Any]:
     return {
         "run_id": run_id,
         "display_label": f"{tracker_variant['label']} | {audio_model_size}",
+        "motion_level": motion_level,
         "tracker_variant_key": tracker_variant["key"],
         "tracker_variant_label": tracker_variant["label"],
         "audio_model_size": audio_model_size,
@@ -869,6 +1125,7 @@ def _run_job(job_id: str, config: Dict[str, Any]) -> None:
                         tracking_summary=final_tracking_summary,
                         audio_summary=final_audio_summary,
                         evaluation_summary=final_evaluation_summary,
+                        motion_level=config.get("motion_level"),
                     )
                 )
                 completed_runs += 1
@@ -957,17 +1214,14 @@ def run_ui_job(job_id: str) -> None:
 
 def start_ui_job(config: Dict[str, Any]) -> str:
     ensure_ui_dirs()
-    validate_segment_settings(
-        bool(config.get("segment_processing", False)),
-        float(config.get("segment_length_seconds", 15.0) or 15.0),
-        float(config.get("segment_overlap_seconds", 2.0) or 2.0),
-    )
+    validate_ui_job_config(config)
     active = get_active_job_state()
     if active is not None:
         raise RuntimeError(f"Job {active['job_id']} is already running. Wait for it to finish before starting another.")
 
     job_id = generate_job_id(config)
     initial_state = build_initial_job_state(job_id, config)
+    initial_state["status"] = "running"
     save_job_state(job_id, initial_state)
 
     worker_script = Path(__file__).resolve().parent / "ui_worker.py"
