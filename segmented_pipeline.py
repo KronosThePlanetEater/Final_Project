@@ -30,7 +30,7 @@ from tracker import (
 
 
 BOOL_FIELDS = {"is_keyframe", "flow_valid", "mask_empty", "tracking_failed", "object_missing"}
-INT_FIELDS = {"frame_idx", "frame_source", "mask_area_px", "bbox_x1", "bbox_y1", "bbox_x2", "bbox_y2", "bbox_width", "bbox_height"}
+INT_FIELDS = {"frame_idx", "mask_area_px", "bbox_x1", "bbox_y1", "bbox_x2", "bbox_y2", "bbox_width", "bbox_height"}
 FLOAT_FIELDS = {"timestamp_sec", "motion_magnitude", "mask_coverage_ratio", "inference_time_ms"}
 
 
