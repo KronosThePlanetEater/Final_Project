@@ -6,7 +6,28 @@
     "video_name": "Medium Movement.mp4",
     "reference_audio_path": "Medium_Movement_Clean.wav",
     "ground_truth_mask_path": "Medium_Movement_IoU",
-    "selection": {"mode": "point", "points": [[1657.5, 366.0], [1522.5, 705.0], [1810.5, 711.0], [1681.5, 906.0]], "labels": [1, 1, 1, 1]},
+    "selection": {
+      "mode": "point",
+      "points": [
+        [
+          1045.5,
+          357.0
+        ],
+        [
+          1072.5,
+          717.0
+        ],
+        [
+          1060.5,
+          990.0
+        ]
+      ],
+      "labels": [
+        1,
+        1,
+        1
+      ]
+    },
     "selection_mode": "point",
     "checkpoint_path": "checkpoints/sam2.1_hiera_tiny.pt",
     "config_path": "configs/sam2.1/sam2.1_hiera_t.yaml",
@@ -32,21 +53,85 @@
     "segment_overlap_seconds": 2.0
   },
   "jobs": [
-    {"single_tracker_preset": "full_sam", "predict_spans": false, "reranking_candidates": 1},
-    {"single_tracker_preset": "full_sam", "predict_spans": false, "reranking_candidates": 2},
-    {"single_tracker_preset": "full_sam", "predict_spans": true, "reranking_candidates": 1},
-    {"single_tracker_preset": "full_sam", "predict_spans": true, "reranking_candidates": 2},
-    {"single_tracker_preset": "dynamic_optical_flow", "predict_spans": false, "reranking_candidates": 1},
-    {"single_tracker_preset": "dynamic_optical_flow", "predict_spans": false, "reranking_candidates": 2},
-    {"single_tracker_preset": "dynamic_optical_flow", "predict_spans": true, "reranking_candidates": 1},
-    {"single_tracker_preset": "dynamic_optical_flow", "predict_spans": true, "reranking_candidates": 2},
-    {"single_tracker_preset": "static_interval_5", "predict_spans": false, "reranking_candidates": 1},
-    {"single_tracker_preset": "static_interval_5", "predict_spans": false, "reranking_candidates": 2},
-    {"single_tracker_preset": "static_interval_5", "predict_spans": true, "reranking_candidates": 1},
-    {"single_tracker_preset": "static_interval_5", "predict_spans": true, "reranking_candidates": 2},
-    {"single_tracker_preset": "static_interval_10", "predict_spans": false, "reranking_candidates": 1},
-    {"single_tracker_preset": "static_interval_10", "predict_spans": false, "reranking_candidates": 2},
-    {"single_tracker_preset": "static_interval_10", "predict_spans": true, "reranking_candidates": 1},
-    {"single_tracker_preset": "static_interval_10", "predict_spans": true, "reranking_candidates": 2}
+    {
+      "single_tracker_preset": "full_sam",
+      "predict_spans": false,
+      "reranking_candidates": 1
+    },
+    {
+      "single_tracker_preset": "full_sam",
+      "predict_spans": false,
+      "reranking_candidates": 2
+    },
+    {
+      "single_tracker_preset": "full_sam",
+      "predict_spans": true,
+      "reranking_candidates": 1
+    },
+    {
+      "single_tracker_preset": "full_sam",
+      "predict_spans": true,
+      "reranking_candidates": 2
+    },
+    {
+      "single_tracker_preset": "dynamic_optical_flow",
+      "predict_spans": false,
+      "reranking_candidates": 1
+    },
+    {
+      "single_tracker_preset": "dynamic_optical_flow",
+      "predict_spans": false,
+      "reranking_candidates": 2
+    },
+    {
+      "single_tracker_preset": "dynamic_optical_flow",
+      "predict_spans": true,
+      "reranking_candidates": 1
+    },
+    {
+      "single_tracker_preset": "dynamic_optical_flow",
+      "predict_spans": true,
+      "reranking_candidates": 2
+    },
+    {
+      "single_tracker_preset": "static_interval_5",
+      "predict_spans": false,
+      "reranking_candidates": 1
+    },
+    {
+      "single_tracker_preset": "static_interval_5",
+      "predict_spans": false,
+      "reranking_candidates": 2
+    },
+    {
+      "single_tracker_preset": "static_interval_5",
+      "predict_spans": true,
+      "reranking_candidates": 1
+    },
+    {
+      "single_tracker_preset": "static_interval_5",
+      "predict_spans": true,
+      "reranking_candidates": 2
+    },
+    {
+      "single_tracker_preset": "static_interval_10",
+      "predict_spans": false,
+      "reranking_candidates": 1
+    },
+    {
+      "single_tracker_preset": "static_interval_10",
+      "predict_spans": false,
+      "reranking_candidates": 2
+    },
+    {
+      "single_tracker_preset": "static_interval_10",
+      "predict_spans": true,
+      "reranking_candidates": 1
+    },
+    {
+      "single_tracker_preset": "static_interval_10",
+      "predict_spans": true,
+      "reranking_candidates": 2
+    }
   ]
 }

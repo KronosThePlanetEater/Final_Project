@@ -191,16 +191,15 @@ def format_stage_status(stage_state: Dict[str, Any]) -> str:
 def render_stage_overview(job_state: Dict[str, Any]) -> None:
     st.markdown("**Pipeline Stages**")
     stages = job_state.get("stages", {}) or {}
-    rows = []
     for stage_key in ["dataset_prep", "tracking", "audio", "evaluation", "analytics"]:
         stage_state = stages.get(stage_key, {}) or {}
-        rows.append({
-            "Stage": STAGE_LABELS.get(stage_key, stage_key),
-            "Status": format_stage_status(stage_state),
-            "Progress": f"{int(round(float(stage_state.get('progress', 0.0) or 0.0) * 100))}%",
-            "Message": stage_state.get("message") or "",
-        })
-    render_html_table(rows, columns=["Stage", "Status", "Progress", "Message"])
+        cols = st.columns([1.15, 0.7, 0.45])
+        cols[0].markdown(f"**{STAGE_LABELS.get(stage_key, stage_key)}**")
+        cols[1].caption(format_stage_status(stage_state))
+        cols[2].caption(f"{int(round(float(stage_state.get('progress', 0.0) or 0.0) * 100))}%")
+        message = stage_state.get("message") or ""
+        if message:
+            st.caption(message)
 
 
 def render_html_table(rows, columns: Optional[list[str]] = None, max_rows: Optional[int] = None) -> None:
@@ -253,43 +252,43 @@ def render_metrics_plot(df, chart_cols: list[str]) -> None:
     plt.close(fig)
 
 
-def read_media_bytes(path_value: str) -> Optional[bytes]:
+def resolve_media_path(path_value: str) -> Optional[str]:
     path = Path(path_value)
     if not path.exists() or not path.is_file():
         return None
-    return path.read_bytes()
+    return str(path.resolve())
 
 
 def render_video_file(path_value: Optional[str], label: Optional[str] = None, container=None) -> None:
     if not path_value:
         return
-    payload = read_media_bytes(path_value)
-    if payload is None:
+    resolved_path = resolve_media_path(path_value)
+    if resolved_path is None:
         return
     target = container or st
     if label:
         target.markdown(label)
-    target.video(payload)
+    target.video(resolved_path)
 
 
 def render_audio_file(path_value: Optional[str], container=None) -> None:
     if not path_value:
         return
-    payload = read_media_bytes(path_value)
-    if payload is None:
+    resolved_path = resolve_media_path(path_value)
+    if resolved_path is None:
         return
     target = container or st
-    target.audio(payload)
+    target.audio(resolved_path)
 
 
 def render_image_file(path_value: Optional[str], caption: Optional[str] = None, container=None) -> None:
     if not path_value:
         return
-    payload = read_media_bytes(path_value)
-    if payload is None:
+    resolved_path = resolve_media_path(path_value)
+    if resolved_path is None:
         return
     target = container or st
-    target.image(payload, caption=caption)
+    target.image(resolved_path, caption=caption)
 
 
 def clear_preview_state() -> None:
@@ -1302,7 +1301,7 @@ def main() -> None:
             render_center_panel(video_name)
         with right:
             render_right_panel(job_state)
-            render_queue_panel(queue_state)
+        render_queue_panel(queue_state)
 
     with outputs_tab:
         render_results_panel(job_state)
