@@ -1,0 +1,10 @@
+#!/bin/bash -l
+#SBATCH --output=slurm_medium_%j.log
+#SBATCH -G 1
+#SBATCH -w rlab7
+#SBATCH --mem=80g
+
+cd /common/users/dp1207/Final_Project
+source .venv/bin/activate
+
+python queue_worker.py input/medium_movement_main_8_run_queue.json

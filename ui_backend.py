@@ -38,6 +38,38 @@ JOB_ROOT = OUTPUT_ROOT / "ui_runs"
 QUEUE_ROOT = OUTPUT_ROOT / "ui_queue"
 QUEUE_STATE_PATH = QUEUE_ROOT / "queue_state.json"
 VALID_AUDIO_MODEL_SIZES = ["small-tv", "small", "base-tv", "base", "large-tv", "large"]
+DEFAULT_QUEUE_JOB_CONFIG: Dict[str, Any] = {
+    "selection_mode": "point",
+    "checkpoint_path": "checkpoints/sam2.1_hiera_tiny.pt",
+    "config_path": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "start_time": 0.0,
+    "scale": 1.0,
+    "max_frames": None,
+    "run_mode": "single",
+    "single_tracker_preset": "dynamic_optical_flow",
+    "dynamic_min": 2,
+    "dynamic_max": 20,
+    "tracker_variants": [],
+    "save_mask_pngs": True,
+    "audio_model_size": "small-tv",
+    "audio_model_sizes": [],
+    "audio_model_id": None,
+    "audio_device": None,
+    "audio_precision": "auto",
+    "predict_spans": False,
+    "reranking_candidates": 1,
+    "allow_placeholder_audio": False,
+    "release_memory_after_run": True,
+    "reference_audio_path": None,
+    "ground_truth_mask_path": None,
+    "target_fps": None,
+    "target_width": None,
+    "target_height": None,
+    "ffmpeg_bin": "ffmpeg",
+    "segment_processing": False,
+    "segment_length_seconds": 15.0,
+    "segment_overlap_seconds": 2.0,
+}
 TRACKER_PRESETS = {
     "dynamic_optical_flow": "Dynamic SAM + Optical Flow",
     "full_sam": "Full SAM (every frame)",
@@ -584,6 +616,100 @@ def get_queue_state() -> Dict[str, Any]:
     }
 
 
+def parse_optional_int(value: Any) -> Optional[int]:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def normalize_selection_payload(selection: Any, label: str = "selection") -> Dict[str, Any]:
+    if not isinstance(selection, dict):
+        raise ValueError(f"{label} must be an object.")
+    mode = selection.get("mode")
+    if mode == "bbox":
+        bbox = selection.get("bbox")
+        if not isinstance(bbox, list) or len(bbox) != 4:
+            raise ValueError(f"{label}.bbox must contain exactly four numbers.")
+        try:
+            normalized_bbox = [float(value) for value in bbox]
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{label}.bbox must contain only numeric values.") from exc
+        return {"mode": "bbox", "bbox": normalized_bbox}
+
+    if mode == "point":
+        points = selection.get("points")
+        labels = selection.get("labels")
+        if not isinstance(points, list) or not isinstance(labels, list) or len(points) != len(labels):
+            raise ValueError(f"{label}.points and {label}.labels must be equal-length lists.")
+        normalized_points = []
+        normalized_labels = []
+        for index, point in enumerate(points):
+            if not isinstance(point, list) or len(point) != 2:
+                raise ValueError(f"{label}.points[{index}] must contain exactly two numbers.")
+            try:
+                normalized_points.append([float(point[0]), float(point[1])])
+                normalized_labels.append(int(labels[index]))
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"{label}.points and {label}.labels must contain numeric values.") from exc
+        if not normalized_points:
+            raise ValueError(f"{label}.points must contain at least one point.")
+        return {"mode": "point", "points": normalized_points, "labels": normalized_labels}
+
+    raise ValueError(f"{label}.mode must be either 'bbox' or 'point'.")
+
+
+def normalize_queue_job_config(job: Any, defaults: Optional[Dict[str, Any]] = None, index: int = 0) -> Dict[str, Any]:
+    if not isinstance(job, dict):
+        raise ValueError(f"jobs[{index}] must be an object.")
+    merged = dict(DEFAULT_QUEUE_JOB_CONFIG)
+    if defaults:
+        merged.update(defaults)
+    merged.update(job)
+    if not merged.get("video_name"):
+        raise ValueError(f"jobs[{index}].video_name is required.")
+    merged["selection"] = normalize_selection_payload(merged.get("selection"), label=f"jobs[{index}].selection")
+    merged["selection_mode"] = merged.get("selection_mode") or merged["selection"].get("mode", "point")
+    merged["start_time"] = float(merged.get("start_time") or 0.0)
+    merged["scale"] = float(merged.get("scale") or 1.0)
+    merged["max_frames"] = parse_optional_int(merged.get("max_frames"))
+    merged["dynamic_min"] = int(merged.get("dynamic_min") or 2)
+    merged["dynamic_max"] = int(merged.get("dynamic_max") or 20)
+    merged["reranking_candidates"] = int(merged.get("reranking_candidates") or 1)
+    merged["segment_length_seconds"] = float(merged.get("segment_length_seconds") or 15.0)
+    merged["segment_overlap_seconds"] = float(merged.get("segment_overlap_seconds") or 2.0)
+    for key in ["predict_spans", "allow_placeholder_audio", "release_memory_after_run", "save_mask_pngs", "segment_processing"]:
+        merged[key] = bool(merged.get(key))
+    return merged
+
+
+def parse_queue_manifest_path(manifest_path: str) -> Dict[str, Any]:
+    path = resolve_existing_path(manifest_path)
+    try:
+        payload = read_json(path)
+    except Exception as exc:
+        raise ValueError(f"Queue manifest must be valid JSON: {path}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("Queue manifest root must be a JSON object.")
+    jobs = payload.get("jobs")
+    if not isinstance(jobs, list) or not jobs:
+        raise ValueError("Queue manifest must contain a non-empty 'jobs' list.")
+    defaults = payload.get("defaults") or {}
+    if not isinstance(defaults, dict):
+        raise ValueError("Queue manifest 'defaults' must be an object when provided.")
+    normalized_jobs = [
+        normalize_queue_job_config(job, defaults=defaults, index=index)
+        for index, job in enumerate(jobs)
+    ]
+    return {
+        "version": int(payload.get("version", 1) or 1),
+        "motion_type": payload.get("motion_type"),
+        "jobs": normalized_jobs,
+    }
+
+
 def validate_ui_job_config(config: Dict[str, Any]) -> None:
     selection = config.get("selection")
     if not selection:
@@ -647,7 +773,7 @@ def enqueue_ui_job(config: Dict[str, Any]) -> str:
     return job_id
 
 
-def enqueue_ui_jobs(configs: List[Dict[str, Any]]) -> List[str]:
+def enqueue_ui_jobs(configs: List[Dict[str, Any]], start_worker: bool = True) -> List[str]:
     ensure_ui_dirs()
     if not configs:
         raise RuntimeError("Queue manifest did not contain any jobs.")
@@ -665,7 +791,8 @@ def enqueue_ui_jobs(configs: List[Dict[str, Any]]) -> List[str]:
         job_ids.append(job_id)
     state["queued_job_ids"] = list(dict.fromkeys(queued))
     save_queue_state_raw(state)
-    start_queue_worker_if_needed()
+    if start_worker:
+        start_queue_worker_if_needed()
     return job_ids
 
 
