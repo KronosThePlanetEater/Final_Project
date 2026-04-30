@@ -1,0 +1,138 @@
+﻿{
+  "version": 1,
+  "motion_type": "medium_small_variants_15s",
+  "defaults": {
+    "motion_level": "medium",
+    "video_name": "Medium_Movement_15s.mp4",
+    "reference_audio_path": "Medium_Movement_Clean_15s.wav",
+    "ground_truth_mask_path": "Medium_Movement_15s_IoU",
+    "selection": {
+      "mode": "point",
+      "points": [
+        [
+          1045.5,
+          357.0
+        ],
+        [
+          1072.5,
+          717.0
+        ],
+        [
+          1060.5,
+          990.0
+        ]
+      ],
+      "labels": [
+        1,
+        1,
+        1
+      ]
+    },
+    "selection_mode": "point",
+    "checkpoint_path": "checkpoints/sam2.1_hiera_tiny.pt",
+    "config_path": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "start_time": 0.0,
+    "scale": 1.0,
+    "max_frames": null,
+    "run_mode": "single",
+    "dynamic_min": 2,
+    "dynamic_max": 20,
+    "save_mask_pngs": true,
+    "audio_model_size": "small-tv",
+    "audio_model_id": "sam_audio_models/small-tv",
+    "audio_device": null,
+    "audio_precision": "fp16",
+    "allow_placeholder_audio": false,
+    "release_memory_after_run": true,
+    "target_fps": null,
+    "target_width": null,
+    "target_height": null,
+    "ffmpeg_bin": "ffmpeg",
+    "segment_processing": false,
+    "segment_length_seconds": 15.0,
+    "segment_overlap_seconds": 0.0
+  },
+  "jobs": [
+    {
+      "single_tracker_preset": "full_sam",
+      "predict_spans": false,
+      "reranking_candidates": 1
+    },
+    {
+      "single_tracker_preset": "full_sam",
+      "predict_spans": false,
+      "reranking_candidates": 2
+    },
+    {
+      "single_tracker_preset": "full_sam",
+      "predict_spans": true,
+      "reranking_candidates": 1
+    },
+    {
+      "single_tracker_preset": "full_sam",
+      "predict_spans": true,
+      "reranking_candidates": 2
+    },
+    {
+      "single_tracker_preset": "dynamic_optical_flow",
+      "predict_spans": false,
+      "reranking_candidates": 1
+    },
+    {
+      "single_tracker_preset": "dynamic_optical_flow",
+      "predict_spans": false,
+      "reranking_candidates": 2
+    },
+    {
+      "single_tracker_preset": "dynamic_optical_flow",
+      "predict_spans": true,
+      "reranking_candidates": 1
+    },
+    {
+      "single_tracker_preset": "dynamic_optical_flow",
+      "predict_spans": true,
+      "reranking_candidates": 2
+    },
+    {
+      "single_tracker_preset": "static_interval_5",
+      "predict_spans": false,
+      "reranking_candidates": 1
+    },
+    {
+      "single_tracker_preset": "static_interval_5",
+      "predict_spans": false,
+      "reranking_candidates": 2
+    },
+    {
+      "single_tracker_preset": "static_interval_5",
+      "predict_spans": true,
+      "reranking_candidates": 1
+    },
+    {
+      "single_tracker_preset": "static_interval_5",
+      "predict_spans": true,
+      "reranking_candidates": 2
+    },
+    {
+      "single_tracker_preset": "static_interval_10",
+      "predict_spans": false,
+      "reranking_candidates": 1
+    },
+    {
+      "single_tracker_preset": "static_interval_10",
+      "predict_spans": false,
+      "reranking_candidates": 2
+    },
+    {
+      "single_tracker_preset": "static_interval_10",
+      "predict_spans": true,
+      "reranking_candidates": 1
+    },
+    {
+      "single_tracker_preset": "static_interval_10",
+      "predict_spans": true,
+      "reranking_candidates": 2
+    }
+  ]
+}
+
