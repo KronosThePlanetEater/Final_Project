@@ -398,7 +398,7 @@ def normalize_selection_payload(selection: Any, label: str = "selection") -> Dic
 
 def parse_selection_config_bytes(raw_bytes: bytes) -> Dict[str, Any]:
     try:
-        payload = json.loads(raw_bytes.decode("utf-8"))
+        payload = json.loads(raw_bytes.decode("utf-8-sig"))
     except Exception as exc:
         raise ValueError("Selection config must be valid UTF-8 JSON.") from exc
     if not isinstance(payload, dict):
@@ -494,7 +494,7 @@ def normalize_queue_job_config(job: Any, defaults: Optional[Dict[str, Any]] = No
 
 def parse_queue_manifest_bytes(raw_bytes: bytes) -> Dict[str, Any]:
     try:
-        payload = json.loads(raw_bytes.decode("utf-8"))
+        payload = json.loads(raw_bytes.decode("utf-8-sig"))
     except Exception as exc:
         raise ValueError("Queue manifest must be valid UTF-8 JSON.") from exc
     if not isinstance(payload, dict):
