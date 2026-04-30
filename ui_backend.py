@@ -757,7 +757,7 @@ def start_queue_worker_if_needed() -> Optional[int]:
     return int(process.pid)
 
 
-def enqueue_ui_job(config: Dict[str, Any]) -> str:
+def enqueue_ui_job(config: Dict[str, Any], start_worker: bool = False) -> str:
     ensure_ui_dirs()
     validate_ui_job_config(config)
     job_id = generate_job_id(config)
@@ -769,11 +769,12 @@ def enqueue_ui_job(config: Dict[str, Any]) -> str:
     if job_id not in queued:
         queued.append(job_id)
     save_queue_state_raw(state)
-    start_queue_worker_if_needed()
+    if start_worker:
+        start_queue_worker_if_needed()
     return job_id
 
 
-def enqueue_ui_jobs(configs: List[Dict[str, Any]], start_worker: bool = True) -> List[str]:
+def enqueue_ui_jobs(configs: List[Dict[str, Any]], start_worker: bool = False) -> List[str]:
     ensure_ui_dirs()
     if not configs:
         raise RuntimeError("Queue manifest did not contain any jobs.")

@@ -1,10 +1,10 @@
 #!/bin/bash -l
-#SBATCH --output=slurm_medium_%j.log
+#SBATCH --output=slurm_motion_complexity_%j.log
 #SBATCH -G 1
 #SBATCH -w rlab7
-#SBATCH --mem=80g
+#SBATCH --mem=120g
 
 cd /common/users/dp1207/Final_Project
 source .venv/bin/activate
 
-python queue_worker.py input/medium_movement_main_8_run_queue.json
+python queue_worker.py input/motion_complexity_main_24_run_queue_15s.json

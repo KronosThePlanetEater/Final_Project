@@ -314,6 +314,7 @@ def ensure_session_defaults() -> None:
     st.session_state.setdefault("selection_config_error", None)
     st.session_state.setdefault("queue_manifest", None)
     st.session_state.setdefault("queue_manifest_error", None)
+    st.session_state.setdefault("auto_start_queue_worker", False)
     st.session_state.setdefault("last_job_id", None)
     st.session_state.setdefault("selection_mode", "point")
     st.session_state.setdefault("scale", 1.0)
@@ -773,7 +774,7 @@ def render_left_panel(video_name: Optional[str], active_job: Optional[Dict[str, 
 
     st.info(selection_summary(st.session_state.get("ui_selection")))
     queue_state = get_queue_state()
-    queue_busy = bool(active_job) or bool(queue_state.get("queued")) or bool(queue_state.get("worker_running"))
+    queue_busy = bool(active_job) or bool(queue_state.get("worker_running"))
     missing_selection = st.session_state.get("ui_selection") is None
     button_label = "Start comparison now" if st.session_state.get("run_mode") == "comparison" else "Start now"
     start_col, queue_col = st.columns(2)
@@ -798,7 +799,9 @@ def render_left_panel(video_name: Optional[str], active_job: Optional[Dict[str, 
         except Exception as exc:
             st.error(str(exc))
     if queue_busy:
-        st.caption("Use the queue while another job is active or waiting.")
+        st.caption("A job or queue worker is active. Wait for it to finish before starting another direct run.")
+    elif queue_state.get("queued"):
+        st.caption("Queued jobs are waiting, but idle queued jobs will not block `Start now`.")
     if active_job is not None:
         st.warning(f"Job {active_job['job_id']} is currently running.")
 
@@ -944,6 +947,30 @@ def render_queue_panel(queue_state: Dict[str, Any]) -> None:
     running = queue_state.get("running")
     queued = queue_state.get("queued") or []
     history = queue_state.get("history") or []
+    worker_running = bool(queue_state.get("worker_running"))
+
+    control_cols = st.columns([1.0, 1.0])
+    control_cols[0].checkbox(
+        "Auto-start queue worker",
+        key="auto_start_queue_worker",
+        help="Leave off to keep queued jobs idle until you explicitly start the queue. This saves RAM/VRAM while using Start now.",
+    )
+    if compat_column_button(
+        control_cols[1],
+        "Start queue worker",
+        disabled=not queued or bool(running) or worker_running,
+        use_container_width=True,
+    ):
+        try:
+            pid = start_queue_worker_if_needed()
+            if pid:
+                st.success(f"Started queue worker PID {pid}.")
+            else:
+                st.info("Queue worker was not started because no queued job is ready or another job is active.")
+            rerun_app()
+        except Exception as exc:
+            st.error(str(exc))
+    st.caption("RAM-safe default: queued jobs wait here until you click `Start queue worker` or enable auto-start.")
 
     uploaded = st.file_uploader(
         "Import queue manifest",
@@ -969,7 +996,7 @@ def render_queue_panel(queue_state: Dict[str, Any]) -> None:
         import_cols[0].caption(f"Loaded {len(manifest.get('jobs', []))} queued job configs{motion_label}.")
     if compat_column_button(import_cols[0], "Add manifest to queue", disabled=not manifest, use_container_width=True):
         try:
-            job_ids = enqueue_ui_jobs(manifest["jobs"])
+            job_ids = enqueue_ui_jobs(manifest["jobs"], start_worker=bool(st.session_state.get("auto_start_queue_worker", False)))
             st.session_state["last_job_id"] = job_ids[0] if job_ids else st.session_state.get("last_job_id")
             st.success(f"Queued {len(job_ids)} jobs from manifest.")
             rerun_app()
@@ -986,8 +1013,10 @@ def render_queue_panel(queue_state: Dict[str, Any]) -> None:
 
     if running:
         st.caption(f"Running: {running.get('job_id')} ({running.get('clip_id')})")
-    elif queue_state.get("worker_running"):
+    elif worker_running:
         st.caption(f"Queue worker active: PID {queue_state.get('worker_pid')}")
+    elif queued and not st.session_state.get("auto_start_queue_worker", False):
+        st.info("Queued jobs are waiting. Click `Start queue worker` to run them.")
 
     if queued:
         st.markdown("**Waiting**")
@@ -1001,7 +1030,7 @@ def render_queue_panel(queue_state: Dict[str, Any]) -> None:
                     rerun_app()
                 except Exception as exc:
                     st.error(str(exc))
-    elif not running and not queue_state.get("worker_running"):
+    elif not running and not worker_running:
         st.info("Queue is empty.")
 
     if history:
@@ -1246,7 +1275,7 @@ def main() -> None:
     videos = list_input_videos()
     active_job = get_active_job_state()
     queue_state = get_queue_state()
-    if active_job is None and queue_state.get("queued"):
+    if active_job is None and queue_state.get("queued") and st.session_state.get("auto_start_queue_worker", False):
         start_queue_worker_if_needed()
         queue_state = get_queue_state()
         active_job = get_active_job_state()
