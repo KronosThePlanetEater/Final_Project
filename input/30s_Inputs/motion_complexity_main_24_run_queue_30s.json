@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "motion_type": "main_model_variants_15s",
+  "motion_type": "main_model_variants_30s",
   "defaults": {
     "selection_mode": "point",
     "checkpoint_path": "checkpoints/sam2.1_hiera_tiny.pt",
@@ -20,16 +20,16 @@
     "target_width": null,
     "target_height": null,
     "ffmpeg_bin": "ffmpeg",
-    "segment_processing": false,
+    "segment_processing": true,
     "segment_length_seconds": 15.0,
-    "segment_overlap_seconds": 0.0
+    "segment_overlap_seconds": 5.0
   },
   "jobs": [
     {
       "motion_level": "low",
-      "video_name": "Low_Movement_15s.mp4",
-      "reference_audio_path": "Low_Movement_Clean_15s.wav",
-      "ground_truth_mask_path": "Low_Movement_15s_IoU",
+      "video_name": "Low_Movement_30s.mp4",
+      "reference_audio_path": "Low_Movement_Clean_30s.wav",
+      "ground_truth_mask_path": "Low_Movement_30s_IoU",
       "selection": {
         "mode": "point",
         "points": [
@@ -60,9 +60,9 @@
     },
     {
       "motion_level": "low",
-      "video_name": "Low_Movement_15s.mp4",
-      "reference_audio_path": "Low_Movement_Clean_15s.wav",
-      "ground_truth_mask_path": "Low_Movement_15s_IoU",
+      "video_name": "Low_Movement_30s.mp4",
+      "reference_audio_path": "Low_Movement_Clean_30s.wav",
+      "ground_truth_mask_path": "Low_Movement_30s_IoU",
       "selection": {
         "mode": "point",
         "points": [
@@ -93,8 +93,8 @@
     },
     {
       "motion_level": "low",
-      "video_name": "Low_Movement_15s.mp4",
-      "reference_audio_path": "Low_Movement_Clean_15s.wav",
+      "video_name": "Low_Movement_30s.mp4",
+      "reference_audio_path": "Low_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "Low_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -126,8 +126,8 @@
     },
     {
       "motion_level": "low",
-      "video_name": "Low_Movement_15s.mp4",
-      "reference_audio_path": "Low_Movement_Clean_15s.wav",
+      "video_name": "Low_Movement_30s.mp4",
+      "reference_audio_path": "Low_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "Low_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -159,8 +159,8 @@
     },
     {
       "motion_level": "low",
-      "video_name": "Low_Movement_15s.mp4",
-      "reference_audio_path": "Low_Movement_Clean_15s.wav",
+      "video_name": "Low_Movement_30s.mp4",
+      "reference_audio_path": "Low_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "Low_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -192,8 +192,8 @@
     },
     {
       "motion_level": "low",
-      "video_name": "Low_Movement_15s.mp4",
-      "reference_audio_path": "Low_Movement_Clean_15s.wav",
+      "video_name": "Low_Movement_30s.mp4",
+      "reference_audio_path": "Low_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "Low_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -225,8 +225,8 @@
     },
     {
       "motion_level": "low",
-      "video_name": "Low_Movement_15s.mp4",
-      "reference_audio_path": "Low_Movement_Clean_15s.wav",
+      "video_name": "Low_Movement_30s.mp4",
+      "reference_audio_path": "Low_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "Low_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -258,8 +258,8 @@
     },
     {
       "motion_level": "low",
-      "video_name": "Low_Movement_15s.mp4",
-      "reference_audio_path": "Low_Movement_Clean_15s.wav",
+      "video_name": "Low_Movement_30s.mp4",
+      "reference_audio_path": "Low_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "Low_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -291,8 +291,8 @@
     },
     {
       "motion_level": "low",
-      "video_name": "Low_Movement_15s.mp4",
-      "reference_audio_path": "Low_Movement_Clean_15s.wav",
+      "video_name": "Low_Movement_30s.mp4",
+      "reference_audio_path": "Low_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "Low_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -324,8 +324,8 @@
     },
     {
       "motion_level": "low",
-      "video_name": "Low_Movement_15s.mp4",
-      "reference_audio_path": "Low_Movement_Clean_15s.wav",
+      "video_name": "Low_Movement_30s.mp4",
+      "reference_audio_path": "Low_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "Low_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -357,8 +357,8 @@
     },
     {
       "motion_level": "low",
-      "video_name": "Low_Movement_15s.mp4",
-      "reference_audio_path": "Low_Movement_Clean_15s.wav",
+      "video_name": "Low_Movement_30s.mp4",
+      "reference_audio_path": "Low_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "Low_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -390,8 +390,8 @@
     },
     {
       "motion_level": "low",
-      "video_name": "Low_Movement_15s.mp4",
-      "reference_audio_path": "Low_Movement_Clean_15s.wav",
+      "video_name": "Low_Movement_30s.mp4",
+      "reference_audio_path": "Low_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "Low_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -423,8 +423,8 @@
     },
     {
       "motion_level": "low",
-      "video_name": "Low_Movement_15s.mp4",
-      "reference_audio_path": "Low_Movement_Clean_15s.wav",
+      "video_name": "Low_Movement_30s.mp4",
+      "reference_audio_path": "Low_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "Low_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -456,8 +456,8 @@
     },
     {
       "motion_level": "low",
-      "video_name": "Low_Movement_15s.mp4",
-      "reference_audio_path": "Low_Movement_Clean_15s.wav",
+      "video_name": "Low_Movement_30s.mp4",
+      "reference_audio_path": "Low_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "Low_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -489,8 +489,8 @@
     },
     {
       "motion_level": "low",
-      "video_name": "Low_Movement_15s.mp4",
-      "reference_audio_path": "Low_Movement_Clean_15s.wav",
+      "video_name": "Low_Movement_30s.mp4",
+      "reference_audio_path": "Low_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "Low_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -522,8 +522,8 @@
     },
     {
       "motion_level": "low",
-      "video_name": "Low_Movement_15s.mp4",
-      "reference_audio_path": "Low_Movement_Clean_15s.wav",
+      "video_name": "Low_Movement_30s.mp4",
+      "reference_audio_path": "Low_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "Low_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -555,9 +555,9 @@
     },
     {
       "motion_level": "medium",
-      "video_name": "Medium_Movement_15s.mp4",
-      "reference_audio_path": "Medium_Movement_Clean_15s.wav",
-      "ground_truth_mask_path": "Medium_Movement_15s_IoU",
+      "video_name": "Medium_Movement_30s.mp4",
+      "reference_audio_path": "Medium_Movement_Clean_30s.wav",
+      "ground_truth_mask_path": "Medium_Movement_30s_IoU",
       "selection": {
         "mode": "point",
         "points": [
@@ -588,9 +588,9 @@
     },
     {
       "motion_level": "medium",
-      "video_name": "Medium_Movement_15s.mp4",
-      "reference_audio_path": "Medium_Movement_Clean_15s.wav",
-      "ground_truth_mask_path": "Medium_Movement_15s_IoU",
+      "video_name": "Medium_Movement_30s.mp4",
+      "reference_audio_path": "Medium_Movement_Clean_30s.wav",
+      "ground_truth_mask_path": "Medium_Movement_30s_IoU",
       "selection": {
         "mode": "point",
         "points": [
@@ -621,8 +621,8 @@
     },
     {
       "motion_level": "medium",
-      "video_name": "Medium_Movement_15s.mp4",
-      "reference_audio_path": "Medium_Movement_Clean_15s.wav",
+      "video_name": "Medium_Movement_30s.mp4",
+      "reference_audio_path": "Medium_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "Medium_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -654,8 +654,8 @@
     },
     {
       "motion_level": "medium",
-      "video_name": "Medium_Movement_15s.mp4",
-      "reference_audio_path": "Medium_Movement_Clean_15s.wav",
+      "video_name": "Medium_Movement_30s.mp4",
+      "reference_audio_path": "Medium_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "Medium_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -687,8 +687,8 @@
     },
     {
       "motion_level": "medium",
-      "video_name": "Medium_Movement_15s.mp4",
-      "reference_audio_path": "Medium_Movement_Clean_15s.wav",
+      "video_name": "Medium_Movement_30s.mp4",
+      "reference_audio_path": "Medium_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "Medium_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -720,8 +720,8 @@
     },
     {
       "motion_level": "medium",
-      "video_name": "Medium_Movement_15s.mp4",
-      "reference_audio_path": "Medium_Movement_Clean_15s.wav",
+      "video_name": "Medium_Movement_30s.mp4",
+      "reference_audio_path": "Medium_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "Medium_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -753,8 +753,8 @@
     },
     {
       "motion_level": "medium",
-      "video_name": "Medium_Movement_15s.mp4",
-      "reference_audio_path": "Medium_Movement_Clean_15s.wav",
+      "video_name": "Medium_Movement_30s.mp4",
+      "reference_audio_path": "Medium_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "Medium_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -786,8 +786,8 @@
     },
     {
       "motion_level": "medium",
-      "video_name": "Medium_Movement_15s.mp4",
-      "reference_audio_path": "Medium_Movement_Clean_15s.wav",
+      "video_name": "Medium_Movement_30s.mp4",
+      "reference_audio_path": "Medium_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "Medium_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -819,8 +819,8 @@
     },
     {
       "motion_level": "medium",
-      "video_name": "Medium_Movement_15s.mp4",
-      "reference_audio_path": "Medium_Movement_Clean_15s.wav",
+      "video_name": "Medium_Movement_30s.mp4",
+      "reference_audio_path": "Medium_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "Medium_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -852,8 +852,8 @@
     },
     {
       "motion_level": "medium",
-      "video_name": "Medium_Movement_15s.mp4",
-      "reference_audio_path": "Medium_Movement_Clean_15s.wav",
+      "video_name": "Medium_Movement_30s.mp4",
+      "reference_audio_path": "Medium_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "Medium_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -885,8 +885,8 @@
     },
     {
       "motion_level": "medium",
-      "video_name": "Medium_Movement_15s.mp4",
-      "reference_audio_path": "Medium_Movement_Clean_15s.wav",
+      "video_name": "Medium_Movement_30s.mp4",
+      "reference_audio_path": "Medium_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "Medium_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -918,8 +918,8 @@
     },
     {
       "motion_level": "medium",
-      "video_name": "Medium_Movement_15s.mp4",
-      "reference_audio_path": "Medium_Movement_Clean_15s.wav",
+      "video_name": "Medium_Movement_30s.mp4",
+      "reference_audio_path": "Medium_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "Medium_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -951,8 +951,8 @@
     },
     {
       "motion_level": "medium",
-      "video_name": "Medium_Movement_15s.mp4",
-      "reference_audio_path": "Medium_Movement_Clean_15s.wav",
+      "video_name": "Medium_Movement_30s.mp4",
+      "reference_audio_path": "Medium_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "Medium_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -984,8 +984,8 @@
     },
     {
       "motion_level": "medium",
-      "video_name": "Medium_Movement_15s.mp4",
-      "reference_audio_path": "Medium_Movement_Clean_15s.wav",
+      "video_name": "Medium_Movement_30s.mp4",
+      "reference_audio_path": "Medium_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "Medium_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -1017,8 +1017,8 @@
     },
     {
       "motion_level": "medium",
-      "video_name": "Medium_Movement_15s.mp4",
-      "reference_audio_path": "Medium_Movement_Clean_15s.wav",
+      "video_name": "Medium_Movement_30s.mp4",
+      "reference_audio_path": "Medium_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "Medium_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -1050,8 +1050,8 @@
     },
     {
       "motion_level": "medium",
-      "video_name": "Medium_Movement_15s.mp4",
-      "reference_audio_path": "Medium_Movement_Clean_15s.wav",
+      "video_name": "Medium_Movement_30s.mp4",
+      "reference_audio_path": "Medium_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "Medium_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -1083,9 +1083,9 @@
     },
     {
       "motion_level": "high",
-      "video_name": "High_Movement_15s.mp4",
-      "reference_audio_path": "High_Movement_Clean_15s.wav",
-      "ground_truth_mask_path": "High_Movement_15s_IoU",
+      "video_name": "High movement_30s.mp4",
+      "reference_audio_path": "High_Movement_Clean_30s.wav",
+      "ground_truth_mask_path": "High_Movement_30s_IoU",
       "selection": {
         "mode": "point",
         "points": [
@@ -1121,9 +1121,9 @@
     },
     {
       "motion_level": "high",
-      "video_name": "High_Movement_15s.mp4",
-      "reference_audio_path": "High_Movement_Clean_15s.wav",
-      "ground_truth_mask_path": "High_Movement_15s_IoU",
+      "video_name": "High movement_30s.mp4",
+      "reference_audio_path": "High_Movement_Clean_30s.wav",
+      "ground_truth_mask_path": "High_Movement_30s_IoU",
       "selection": {
         "mode": "point",
         "points": [
@@ -1159,8 +1159,8 @@
     },
     {
       "motion_level": "high",
-      "video_name": "High_Movement_15s.mp4",
-      "reference_audio_path": "High_Movement_Clean_15s.wav",
+      "video_name": "High movement_30s.mp4",
+      "reference_audio_path": "High_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "High_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -1197,8 +1197,8 @@
     },
     {
       "motion_level": "high",
-      "video_name": "High_Movement_15s.mp4",
-      "reference_audio_path": "High_Movement_Clean_15s.wav",
+      "video_name": "High movement_30s.mp4",
+      "reference_audio_path": "High_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "High_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -1235,8 +1235,8 @@
     },
     {
       "motion_level": "high",
-      "video_name": "High_Movement_15s.mp4",
-      "reference_audio_path": "High_Movement_Clean_15s.wav",
+      "video_name": "High movement_30s.mp4",
+      "reference_audio_path": "High_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "High_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -1273,8 +1273,8 @@
     },
     {
       "motion_level": "high",
-      "video_name": "High_Movement_15s.mp4",
-      "reference_audio_path": "High_Movement_Clean_15s.wav",
+      "video_name": "High movement_30s.mp4",
+      "reference_audio_path": "High_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "High_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -1311,8 +1311,8 @@
     },
     {
       "motion_level": "high",
-      "video_name": "High_Movement_15s.mp4",
-      "reference_audio_path": "High_Movement_Clean_15s.wav",
+      "video_name": "High movement_30s.mp4",
+      "reference_audio_path": "High_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "High_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -1349,8 +1349,8 @@
     },
     {
       "motion_level": "high",
-      "video_name": "High_Movement_15s.mp4",
-      "reference_audio_path": "High_Movement_Clean_15s.wav",
+      "video_name": "High movement_30s.mp4",
+      "reference_audio_path": "High_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "High_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -1387,8 +1387,8 @@
     },
     {
       "motion_level": "high",
-      "video_name": "High_Movement_15s.mp4",
-      "reference_audio_path": "High_Movement_Clean_15s.wav",
+      "video_name": "High movement_30s.mp4",
+      "reference_audio_path": "High_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "High_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -1425,8 +1425,8 @@
     },
     {
       "motion_level": "high",
-      "video_name": "High_Movement_15s.mp4",
-      "reference_audio_path": "High_Movement_Clean_15s.wav",
+      "video_name": "High movement_30s.mp4",
+      "reference_audio_path": "High_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "High_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -1463,8 +1463,8 @@
     },
     {
       "motion_level": "high",
-      "video_name": "High_Movement_15s.mp4",
-      "reference_audio_path": "High_Movement_Clean_15s.wav",
+      "video_name": "High movement_30s.mp4",
+      "reference_audio_path": "High_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "High_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -1501,8 +1501,8 @@
     },
     {
       "motion_level": "high",
-      "video_name": "High_Movement_15s.mp4",
-      "reference_audio_path": "High_Movement_Clean_15s.wav",
+      "video_name": "High movement_30s.mp4",
+      "reference_audio_path": "High_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "High_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -1539,8 +1539,8 @@
     },
     {
       "motion_level": "high",
-      "video_name": "High_Movement_15s.mp4",
-      "reference_audio_path": "High_Movement_Clean_15s.wav",
+      "video_name": "High movement_30s.mp4",
+      "reference_audio_path": "High_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "High_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -1577,8 +1577,8 @@
     },
     {
       "motion_level": "high",
-      "video_name": "High_Movement_15s.mp4",
-      "reference_audio_path": "High_Movement_Clean_15s.wav",
+      "video_name": "High movement_30s.mp4",
+      "reference_audio_path": "High_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "High_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -1615,8 +1615,8 @@
     },
     {
       "motion_level": "high",
-      "video_name": "High_Movement_15s.mp4",
-      "reference_audio_path": "High_Movement_Clean_15s.wav",
+      "video_name": "High movement_30s.mp4",
+      "reference_audio_path": "High_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "High_Movement_IoU",
       "selection": {
         "mode": "point",
@@ -1653,8 +1653,8 @@
     },
     {
       "motion_level": "high",
-      "video_name": "High_Movement_15s.mp4",
-      "reference_audio_path": "High_Movement_Clean_15s.wav",
+      "video_name": "High movement_30s.mp4",
+      "reference_audio_path": "High_Movement_Clean_30s.wav",
       "ground_truth_mask_path": "High_Movement_IoU",
       "selection": {
         "mode": "point",

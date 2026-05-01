@@ -73,13 +73,6 @@
     {
       "single_tracker_preset": "full_sam",
       "predict_spans": false,
-      "reranking_candidates": 1,
-      "audio_model_size": "large-tv",
-      "audio_model_id": "sam_audio_models/large-tv"
-    },
-    {
-      "single_tracker_preset": "full_sam",
-      "predict_spans": false,
       "reranking_candidates": 2,
       "audio_model_size": "small-tv",
       "audio_model_id": "sam_audio_models/small-tv"
@@ -92,55 +85,6 @@
       "audio_model_id": "sam_audio_models/base-tv"
     },
     {
-      "single_tracker_preset": "full_sam",
-      "predict_spans": false,
-      "reranking_candidates": 2,
-      "audio_model_size": "large-tv",
-      "audio_model_id": "sam_audio_models/large-tv"
-    },
-    {
-      "single_tracker_preset": "full_sam",
-      "predict_spans": true,
-      "reranking_candidates": 1,
-      "audio_model_size": "small-tv",
-      "audio_model_id": "sam_audio_models/small-tv"
-    },
-    {
-      "single_tracker_preset": "full_sam",
-      "predict_spans": true,
-      "reranking_candidates": 1,
-      "audio_model_size": "base-tv",
-      "audio_model_id": "sam_audio_models/base-tv"
-    },
-    {
-      "single_tracker_preset": "full_sam",
-      "predict_spans": true,
-      "reranking_candidates": 1,
-      "audio_model_size": "large-tv",
-      "audio_model_id": "sam_audio_models/large-tv"
-    },
-    {
-      "single_tracker_preset": "full_sam",
-      "predict_spans": true,
-      "reranking_candidates": 2,
-      "audio_model_size": "small-tv",
-      "audio_model_id": "sam_audio_models/small-tv"
-    },
-    {
-      "single_tracker_preset": "full_sam",
-      "predict_spans": true,
-      "reranking_candidates": 2,
-      "audio_model_size": "base-tv",
-      "audio_model_id": "sam_audio_models/base-tv"
-    },
-    {
-      "single_tracker_preset": "full_sam",
-      "predict_spans": true,
-      "reranking_candidates": 2,
-      "audio_model_size": "large-tv",
-      "audio_model_id": "sam_audio_models/large-tv"
-    },
-    {
       "single_tracker_preset": "dynamic_optical_flow",
       "predict_spans": false,
       "reranking_candidates": 1,
@@ -157,13 +101,6 @@
     {
       "single_tracker_preset": "dynamic_optical_flow",
       "predict_spans": false,
-      "reranking_candidates": 1,
-      "audio_model_size": "large-tv",
-      "audio_model_id": "sam_audio_models/large-tv"
-    },
-    {
-      "single_tracker_preset": "dynamic_optical_flow",
-      "predict_spans": false,
       "reranking_candidates": 2,
       "audio_model_size": "small-tv",
       "audio_model_id": "sam_audio_models/small-tv"
@@ -174,55 +111,6 @@
       "reranking_candidates": 2,
       "audio_model_size": "base-tv",
       "audio_model_id": "sam_audio_models/base-tv"
-    },
-    {
-      "single_tracker_preset": "dynamic_optical_flow",
-      "predict_spans": false,
-      "reranking_candidates": 2,
-      "audio_model_size": "large-tv",
-      "audio_model_id": "sam_audio_models/large-tv"
-    },
-    {
-      "single_tracker_preset": "dynamic_optical_flow",
-      "predict_spans": true,
-      "reranking_candidates": 1,
-      "audio_model_size": "small-tv",
-      "audio_model_id": "sam_audio_models/small-tv"
-    },
-    {
-      "single_tracker_preset": "dynamic_optical_flow",
-      "predict_spans": true,
-      "reranking_candidates": 1,
-      "audio_model_size": "base-tv",
-      "audio_model_id": "sam_audio_models/base-tv"
-    },
-    {
-      "single_tracker_preset": "dynamic_optical_flow",
-      "predict_spans": true,
-      "reranking_candidates": 1,
-      "audio_model_size": "large-tv",
-      "audio_model_id": "sam_audio_models/large-tv"
-    },
-    {
-      "single_tracker_preset": "dynamic_optical_flow",
-      "predict_spans": true,
-      "reranking_candidates": 2,
-      "audio_model_size": "small-tv",
-      "audio_model_id": "sam_audio_models/small-tv"
-    },
-    {
-      "single_tracker_preset": "dynamic_optical_flow",
-      "predict_spans": true,
-      "reranking_candidates": 2,
-      "audio_model_size": "base-tv",
-      "audio_model_id": "sam_audio_models/base-tv"
-    },
-    {
-      "single_tracker_preset": "dynamic_optical_flow",
-      "predict_spans": true,
-      "reranking_candidates": 2,
-      "audio_model_size": "large-tv",
-      "audio_model_id": "sam_audio_models/large-tv"
     },
     {
       "single_tracker_preset": "static_interval_5",
@@ -241,13 +129,6 @@
     {
       "single_tracker_preset": "static_interval_5",
       "predict_spans": false,
-      "reranking_candidates": 1,
-      "audio_model_size": "large-tv",
-      "audio_model_id": "sam_audio_models/large-tv"
-    },
-    {
-      "single_tracker_preset": "static_interval_5",
-      "predict_spans": false,
       "reranking_candidates": 2,
       "audio_model_size": "small-tv",
       "audio_model_id": "sam_audio_models/small-tv"
@@ -258,55 +139,6 @@
       "reranking_candidates": 2,
       "audio_model_size": "base-tv",
       "audio_model_id": "sam_audio_models/base-tv"
-    },
-    {
-      "single_tracker_preset": "static_interval_5",
-      "predict_spans": false,
-      "reranking_candidates": 2,
-      "audio_model_size": "large-tv",
-      "audio_model_id": "sam_audio_models/large-tv"
-    },
-    {
-      "single_tracker_preset": "static_interval_5",
-      "predict_spans": true,
-      "reranking_candidates": 1,
-      "audio_model_size": "small-tv",
-      "audio_model_id": "sam_audio_models/small-tv"
-    },
-    {
-      "single_tracker_preset": "static_interval_5",
-      "predict_spans": true,
-      "reranking_candidates": 1,
-      "audio_model_size": "base-tv",
-      "audio_model_id": "sam_audio_models/base-tv"
-    },
-    {
-      "single_tracker_preset": "static_interval_5",
-      "predict_spans": true,
-      "reranking_candidates": 1,
-      "audio_model_size": "large-tv",
-      "audio_model_id": "sam_audio_models/large-tv"
-    },
-    {
-      "single_tracker_preset": "static_interval_5",
-      "predict_spans": true,
-      "reranking_candidates": 2,
-      "audio_model_size": "small-tv",
-      "audio_model_id": "sam_audio_models/small-tv"
-    },
-    {
-      "single_tracker_preset": "static_interval_5",
-      "predict_spans": true,
-      "reranking_candidates": 2,
-      "audio_model_size": "base-tv",
-      "audio_model_id": "sam_audio_models/base-tv"
-    },
-    {
-      "single_tracker_preset": "static_interval_5",
-      "predict_spans": true,
-      "reranking_candidates": 2,
-      "audio_model_size": "large-tv",
-      "audio_model_id": "sam_audio_models/large-tv"
     },
     {
       "single_tracker_preset": "static_interval_10",
@@ -325,13 +157,6 @@
     {
       "single_tracker_preset": "static_interval_10",
       "predict_spans": false,
-      "reranking_candidates": 1,
-      "audio_model_size": "large-tv",
-      "audio_model_id": "sam_audio_models/large-tv"
-    },
-    {
-      "single_tracker_preset": "static_interval_10",
-      "predict_spans": false,
       "reranking_candidates": 2,
       "audio_model_size": "small-tv",
       "audio_model_id": "sam_audio_models/small-tv"
@@ -342,55 +167,6 @@
       "reranking_candidates": 2,
       "audio_model_size": "base-tv",
       "audio_model_id": "sam_audio_models/base-tv"
-    },
-    {
-      "single_tracker_preset": "static_interval_10",
-      "predict_spans": false,
-      "reranking_candidates": 2,
-      "audio_model_size": "large-tv",
-      "audio_model_id": "sam_audio_models/large-tv"
-    },
-    {
-      "single_tracker_preset": "static_interval_10",
-      "predict_spans": true,
-      "reranking_candidates": 1,
-      "audio_model_size": "small-tv",
-      "audio_model_id": "sam_audio_models/small-tv"
-    },
-    {
-      "single_tracker_preset": "static_interval_10",
-      "predict_spans": true,
-      "reranking_candidates": 1,
-      "audio_model_size": "base-tv",
-      "audio_model_id": "sam_audio_models/base-tv"
-    },
-    {
-      "single_tracker_preset": "static_interval_10",
-      "predict_spans": true,
-      "reranking_candidates": 1,
-      "audio_model_size": "large-tv",
-      "audio_model_id": "sam_audio_models/large-tv"
-    },
-    {
-      "single_tracker_preset": "static_interval_10",
-      "predict_spans": true,
-      "reranking_candidates": 2,
-      "audio_model_size": "small-tv",
-      "audio_model_id": "sam_audio_models/small-tv"
-    },
-    {
-      "single_tracker_preset": "static_interval_10",
-      "predict_spans": true,
-      "reranking_candidates": 2,
-      "audio_model_size": "base-tv",
-      "audio_model_id": "sam_audio_models/base-tv"
-    },
-    {
-      "single_tracker_preset": "static_interval_10",
-      "predict_spans": true,
-      "reranking_candidates": 2,
-      "audio_model_size": "large-tv",
-      "audio_model_id": "sam_audio_models/large-tv"
     }
   ]
 }

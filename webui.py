@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from html import escape
 import json
 import time
 
@@ -54,6 +55,61 @@ try:
     st.set_option("global.dataFrameSerialization", "legacy")
 except Exception:
     pass
+
+
+AGGREGATE_DISPLAY_COLUMNS = [
+    "job_id",
+    "clip_id",
+    "motion_level",
+    "tracker_variant_label",
+    "audio_model_size",
+    "predict_spans",
+    "reranking_candidates",
+    "effective_audio_precision",
+    "tracking_runtime_seconds",
+    "audio_runtime_seconds",
+    "pure_fps",
+    "mean_motion",
+    "mean_mask_coverage",
+    "failure_count",
+    "empty_mask_count",
+    "mean_iou",
+    "si_sdr",
+]
+
+COMPACT_COLUMN_LABELS = {
+    "run_dir": "Run Dir",
+    "run_id": "Run ID",
+    "job_id": "Job",
+    "display_label": "Run",
+    "clip_id": "Clip",
+    "motion_level": "Motion",
+    "tracker_variant_key": "Tracker Key",
+    "tracker_variant_label": "Tracker",
+    "audio_model_size": "Audio",
+    "model_size": "Model",
+    "model_id": "Model ID",
+    "prompt_mode": "Prompt",
+    "backend": "Backend",
+    "predict_spans": "Spans",
+    "reranking_candidates": "Rank",
+    "requested_audio_precision": "Req Prec",
+    "effective_audio_precision": "Prec",
+    "tracking_runtime_seconds": "Track s",
+    "audio_runtime_seconds": "Audio s",
+    "pure_fps": "FPS",
+    "mean_motion": "Motion",
+    "mean_mask_coverage": "Coverage",
+    "failure_count": "Fails",
+    "empty_mask_count": "Empty",
+    "mean_iou": "IoU",
+    "si_sdr": "SI-SDR",
+    "si_sdr_evaluated": "SI-SDR?",
+    "si_sdr_skip_reason": "Skip Reason",
+    "tracking_summary_path": "Tracking JSON",
+    "audio_metadata_path": "Audio JSON",
+    "evaluation_summary_path": "Eval JSON",
+}
 
 
 def rerun_app() -> None:
@@ -202,7 +258,29 @@ def render_stage_overview(job_state: Dict[str, Any]) -> None:
             st.caption(message)
 
 
-def render_html_table(rows, columns: Optional[list[str]] = None, max_rows: Optional[int] = None) -> None:
+def format_table_cell(value: Any) -> str:
+    if value is None:
+        return "-"
+    try:
+        if value != value:
+            return "-"
+    except Exception:
+        pass
+    if isinstance(value, bool):
+        return "Y" if value else "N"
+    if isinstance(value, float):
+        return f"{value:.4f}".rstrip("0").rstrip(".")
+    if isinstance(value, str) and value == "":
+        return "-"
+    return str(value)
+
+
+def render_html_table(
+    rows,
+    columns: Optional[list[str]] = None,
+    max_rows: Optional[int] = None,
+    column_labels: Optional[Dict[str, str]] = None,
+) -> None:
     if rows is None:
         return
     if hasattr(rows, "to_dict"):
@@ -220,13 +298,23 @@ def render_html_table(rows, columns: Optional[list[str]] = None, max_rows: Optio
         st.info("No rows to display.")
         return
 
-    header_html = "".join(f"<th style='text-align:left;padding:6px;border-bottom:1px solid #ddd;'>{column}</th>" for column in columns)
+    labels = column_labels or {}
+    header_html = "".join(
+        "<th "
+        "style='text-align:left;padding:6px;border-bottom:1px solid #ddd;"
+        "white-space:normal;line-height:1.1;max-width:92px;' "
+        f"title='{escape(str(column))}'>{escape(str(labels.get(column, column)))}</th>"
+        for column in columns
+    )
     body_rows = []
     for row in data:
         cells = []
         for column in columns:
             value = row.get(column, "") if isinstance(row, dict) else ""
-            cells.append(f"<td style='padding:6px;border-bottom:1px solid #eee;'>{value}</td>")
+            cells.append(
+                "<td style='padding:6px;border-bottom:1px solid #eee;max-width:220px;"
+                f"overflow-wrap:anywhere;'>{escape(format_table_cell(value))}</td>"
+            )
         body_rows.append("<tr>" + "".join(cells) + "</tr>")
     html = (
         "<div style='overflow-x:auto;'>"
@@ -236,6 +324,26 @@ def render_html_table(rows, columns: Optional[list[str]] = None, max_rows: Optio
         "</table></div>"
     )
     st.markdown(html, unsafe_allow_html=True)
+
+
+def render_aggregate_results_table(df, key_suffix: str = "aggregate") -> None:
+    if df is None or df.empty:
+        st.info("No aggregate rows to display.")
+        return
+
+    compact_columns = [column for column in AGGREGATE_DISPLAY_COLUMNS if column in df.columns]
+    hidden_count = max(0, len(df.columns) - len(compact_columns))
+    show_raw = st.checkbox(
+        "Show full raw aggregate table",
+        value=False,
+        key=f"show_raw_aggregate_table_{key_suffix}",
+        help="Compact mode uses shorter labels and hides long path/debug columns. The CSV on disk still keeps every raw column.",
+    )
+    if show_raw or not compact_columns:
+        render_html_table(df, max_rows=500, column_labels=COMPACT_COLUMN_LABELS)
+    else:
+        st.caption(f"Compact view: showing {len(compact_columns)} key columns, hiding {hidden_count} raw/debug columns.")
+        render_html_table(df[compact_columns], max_rows=500, column_labels=COMPACT_COLUMN_LABELS)
 
 
 def render_metrics_plot(df, chart_cols: list[str]) -> None:
@@ -1207,7 +1315,7 @@ def render_posthoc_analysis_results(bundle: Optional[Dict[str, Any]]) -> None:
         if aggregate_csv and Path(aggregate_csv).exists():
             df = load_metrics_preview(aggregate_csv, max_rows=500)
             if not df.empty:
-                render_html_table(df, max_rows=500)
+                render_aggregate_results_table(df, key_suffix=str(bundle.get("set_id") or "posthoc"))
         image_cols = st.columns(2)
         for idx, image_path in enumerate(bundle.get("analysis_images", [])):
             render_image_file(image_path, caption=Path(image_path).name, container=image_cols[idx % 2])

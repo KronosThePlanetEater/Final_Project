@@ -12,6 +12,7 @@ from progress_utils import emit_progress
 
 
 NUMERIC_COLUMNS = [
+    "tracking_runtime_seconds",
     "pure_fps",
     "mean_motion",
     "mean_mask_coverage",
@@ -21,6 +22,23 @@ NUMERIC_COLUMNS = [
     "mean_iou",
     "si_sdr",
 ]
+
+DECIMAL_PLACES = 4
+
+DISPLAY_LABELS = {
+    "tracking_runtime_seconds": "Track s",
+    "audio_runtime_seconds": "Audio s",
+    "pure_fps": "FPS",
+    "mean_motion": "Motion",
+    "mean_mask_coverage": "Coverage",
+    "failure_count": "Fails",
+    "empty_mask_count": "Empty",
+    "mean_iou": "IoU",
+    "si_sdr": "SI-SDR",
+    "motion_level": "Motion",
+    "tracker_variant_label": "Tracker",
+    "audio_model_size": "Audio",
+}
 
 AGGREGATE_FIELDNAMES = [
     "run_dir",
@@ -40,6 +58,7 @@ AGGREGATE_FIELDNAMES = [
     "reranking_candidates",
     "requested_audio_precision",
     "effective_audio_precision",
+    "tracking_runtime_seconds",
     "audio_runtime_seconds",
     "pure_fps",
     "mean_motion",
@@ -71,6 +90,41 @@ def safe_float(value):
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def format_decimal(value: object, fixed: bool = False) -> object:
+    numeric_value = safe_float(value)
+    if numeric_value is None:
+        return value
+    if not np.isfinite(numeric_value):
+        return ""
+    if fixed:
+        return f"{numeric_value:.{DECIMAL_PLACES}f}"
+    if numeric_value.is_integer():
+        return str(int(numeric_value))
+    return f"{numeric_value:.{DECIMAL_PLACES}f}".rstrip("0").rstrip(".")
+
+
+def display_label(key: str) -> str:
+    return DISPLAY_LABELS.get(key, key.replace("_", " ").title())
+
+
+def compact_model_label(value: object) -> Optional[str]:
+    if value in (None, ""):
+        return None
+    text = str(value).replace("\\", "/").rstrip("/")
+    if not text:
+        return None
+    label = text.split("/")[-1]
+    return label or text
+
+
+def format_numeric_outputs(row: Dict[str, object]) -> Dict[str, object]:
+    formatted = dict(row)
+    for column in NUMERIC_COLUMNS:
+        if column in formatted:
+            formatted[column] = format_decimal(formatted[column])
+    return formatted
 
 
 def load_json_if_exists(path_value: Optional[str]) -> Dict[str, object]:
@@ -134,6 +188,10 @@ def derive_row(
     )
     display_label = metadata.get("display_label") or f"{tracker_variant_label} | {audio_model_size or 'audio'}"
 
+    tracking_runtime_seconds = tracking.get("tracking_runtime_seconds")
+    if tracking_runtime_seconds is None:
+        tracking_runtime_seconds = tracking.get("pure_time")
+
     return {
         "run_dir": str(run_dir.resolve()),
         "run_id": run_id,
@@ -152,6 +210,7 @@ def derive_row(
         "reranking_candidates": evaluation.get("reranking_candidates") if evaluation else audio.get("reranking_candidates"),
         "requested_audio_precision": audio.get("requested_audio_precision"),
         "effective_audio_precision": audio.get("effective_audio_precision"),
+        "tracking_runtime_seconds": tracking_runtime_seconds,
         "audio_runtime_seconds": evaluation.get("audio_runtime_seconds") if evaluation else audio.get("runtime_seconds"),
         "pure_fps": tracking.get("pure_fps"),
         "mean_motion": tracking.get("mean_motion"),
@@ -238,7 +297,7 @@ def write_aggregate_csv(rows: List[Dict[str, object]], csv_path: str) -> None:
     with open(csv_path, "w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=AGGREGATE_FIELDNAMES)
         writer.writeheader()
-        writer.writerows(rows)
+        writer.writerows(format_numeric_outputs(row) for row in rows)
 
 
 def write_placeholder_plot(output_path: str, title: str, message: str) -> None:
@@ -258,13 +317,13 @@ def scatter_plot(rows: List[Dict[str, object]], x_key: str, y_key: str, output_p
         if safe_float(row.get(x_key)) is not None and safe_float(row.get(y_key)) is not None
     ]
     if len(points) < 2:
-        write_placeholder_plot(output_path, f"{x_key} vs {y_key}", "Insufficient data to plot this comparison.")
+        write_placeholder_plot(output_path, f"{display_label(x_key)} vs {display_label(y_key)}", "Insufficient data to plot this comparison.")
         return False
     xs, ys = zip(*points)
     plt.figure(figsize=(7, 5))
     plt.scatter(xs, ys, alpha=0.8)
-    plt.xlabel(x_key)
-    plt.ylabel(y_key)
+    plt.xlabel(display_label(x_key))
+    plt.ylabel(display_label(y_key))
     plt.tight_layout()
     plt.savefig(output_path, dpi=150)
     plt.close()
@@ -301,14 +360,22 @@ def correlation_outputs(rows: List[Dict[str, object]], output_dir: str) -> bool:
         writer = csv.writer(handle)
         writer.writerow(["metric"] + NUMERIC_COLUMNS)
         for metric, row in zip(NUMERIC_COLUMNS, corr):
-            writer.writerow([metric] + list(row))
+            writer.writerow([metric] + [format_decimal(value) for value in row])
 
     if np.any(~np.isnan(corr)):
         plt.figure(figsize=(8, 6))
-        plt.imshow(corr, cmap="coolwarm", vmin=-1, vmax=1)
-        plt.colorbar()
-        plt.xticks(range(len(NUMERIC_COLUMNS)), NUMERIC_COLUMNS, rotation=45, ha="right")
-        plt.yticks(range(len(NUMERIC_COLUMNS)), NUMERIC_COLUMNS)
+        ax = plt.gca()
+        image = ax.imshow(corr, cmap="coolwarm", vmin=-1, vmax=1)
+        plt.colorbar(image)
+        matrix_labels = [display_label(column) for column in NUMERIC_COLUMNS]
+        plt.xticks(range(len(NUMERIC_COLUMNS)), matrix_labels, rotation=35, ha="right")
+        plt.yticks(range(len(NUMERIC_COLUMNS)), matrix_labels)
+        for row_index in range(len(NUMERIC_COLUMNS)):
+            for column_index in range(len(NUMERIC_COLUMNS)):
+                value = corr[row_index, column_index]
+                label = "-" if np.isnan(value) else format_decimal(value, fixed=True)
+                text_color = "white" if not np.isnan(value) and abs(value) >= 0.55 else "black"
+                ax.text(column_index, row_index, label, ha="center", va="center", color=text_color, fontsize=7)
         plt.tight_layout()
         plt.savefig(corr_png, dpi=150)
         plt.close()
@@ -318,23 +385,45 @@ def correlation_outputs(rows: List[Dict[str, object]], output_dir: str) -> bool:
     return False
 
 
+def annotate_bar_values(ax, bars) -> None:
+    values = [bar.get_height() for bar in bars]
+    if not values:
+        return
+    ymin, ymax = ax.get_ylim()
+    value_min = min(values + [ymin, 0.0])
+    value_max = max(values + [ymax, 0.0])
+    span = max(value_max - value_min, 1e-9)
+    padding = span * 0.04
+    ax.set_ylim(value_min - padding, value_max + padding)
+
+    for bar in bars:
+        value = bar.get_height()
+        x = bar.get_x() + bar.get_width() / 2
+        y_offset = span * 0.015
+        y = value + y_offset if value >= 0 else value - y_offset
+        va = "bottom" if value >= 0 else "top"
+        ax.text(x, y, format_decimal(value, fixed=True), ha="center", va=va, fontsize=8)
+
+
 def model_comparison_plot(rows: List[Dict[str, object]], metric_key: str, output_path: str) -> bool:
     grouped = {}
     for row in rows:
-        model = row.get("model_id") or row.get("audio_model_size") or row.get("model_size")
+        model = compact_model_label(row.get("model_id") or row.get("audio_model_size") or row.get("model_size"))
         value = safe_float(row.get(metric_key))
         if model is None or value is None:
             continue
         grouped.setdefault(model, []).append(value)
     if not grouped:
-        write_placeholder_plot(output_path, metric_key, "No valid runs contained this metric.")
+        write_placeholder_plot(output_path, display_label(metric_key), "No valid runs contained this metric.")
         return False
 
     models = sorted(grouped)
     means = [float(np.mean(grouped[model])) for model in models]
     plt.figure(figsize=(7, 5))
-    plt.bar(models, means)
-    plt.ylabel(metric_key)
+    ax = plt.gca()
+    bars = ax.bar(models, means)
+    plt.ylabel(display_label(metric_key))
+    annotate_bar_values(ax, bars)
     plt.tight_layout()
     plt.savefig(output_path, dpi=150)
     plt.close()
@@ -350,16 +439,18 @@ def categorical_mean_plot(rows: List[Dict[str, object]], category_key: str, metr
             continue
         grouped.setdefault(str(category), []).append(value)
     if not grouped:
-        write_placeholder_plot(output_path, f"{category_key} vs {metric_key}", "No valid runs contained this metric.")
+        write_placeholder_plot(output_path, f"{display_label(category_key)} vs {display_label(metric_key)}", "No valid runs contained this metric.")
         return False
 
     categories = sorted(grouped)
     means = [float(np.mean(grouped[category])) for category in categories]
     plt.figure(figsize=(8, 5))
-    plt.bar(categories, means)
-    plt.xlabel(category_key)
-    plt.ylabel(metric_key)
+    ax = plt.gca()
+    bars = ax.bar(categories, means)
+    plt.xlabel(display_label(category_key))
+    plt.ylabel(display_label(metric_key))
     plt.xticks(rotation=30, ha="right")
+    annotate_bar_values(ax, bars)
     plt.tight_layout()
     plt.savefig(output_path, dpi=150)
     plt.close()
@@ -394,10 +485,14 @@ def analyze_results(
     scatter_plot(rows, "mean_iou", "si_sdr", str(out_dir / "iou_vs_si_sdr.png"))
     scatter_plot(rows, "mean_mask_coverage", "si_sdr", str(out_dir / "coverage_vs_si_sdr.png"))
     scatter_plot(rows, "mean_mask_coverage", "pure_fps", str(out_dir / "coverage_vs_fps.png"))
+    scatter_plot(rows, "mean_motion", "tracking_runtime_seconds", str(out_dir / "motion_vs_tracking_time.png"))
+    scatter_plot(rows, "tracking_runtime_seconds", "mean_iou", str(out_dir / "tracking_time_vs_iou.png"))
+    scatter_plot(rows, "tracking_runtime_seconds", "si_sdr", str(out_dir / "tracking_time_vs_si_sdr.png"))
     categorical_mean_plot(rows, "motion_level", "mean_iou", str(out_dir / "motion_level_mean_iou.png"))
     categorical_mean_plot(rows, "motion_level", "si_sdr", str(out_dir / "motion_level_si_sdr.png"))
     categorical_mean_plot(rows, "tracker_variant_label", "mean_iou", str(out_dir / "tracker_mean_iou.png"))
     categorical_mean_plot(rows, "tracker_variant_label", "si_sdr", str(out_dir / "tracker_si_sdr.png"))
+    categorical_mean_plot(rows, "tracker_variant_label", "tracking_runtime_seconds", str(out_dir / "tracker_tracking_time.png"))
     categorical_mean_plot(rows, "audio_model_size", "si_sdr", str(out_dir / "audio_model_si_sdr.png"))
     model_comparison_plot(rows, "mean_iou", str(out_dir / "model_mean_iou.png"))
     model_comparison_plot(rows, "si_sdr", str(out_dir / "model_si_sdr.png"))

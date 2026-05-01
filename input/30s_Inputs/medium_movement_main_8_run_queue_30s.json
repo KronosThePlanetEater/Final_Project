@@ -1,25 +1,25 @@
 {
   "version": 1,
-  "motion_type": "low_model_variants_15s",
+  "motion_type": "medium_model_variants_30s",
   "defaults": {
-    "motion_level": "low",
-    "video_name": "Low_Movement_15s.mp4",
-    "reference_audio_path": "Low_Movement_Clean_15s.wav",
-    "ground_truth_mask_path": "Low_Movement_15s_IoU",
+    "motion_level": "medium",
+    "video_name": "Medium_Movement_30s.mp4",
+    "reference_audio_path": "Medium_Movement_Clean_30s.wav",
+    "ground_truth_mask_path": "Medium_Movement_30s_IoU",
     "selection": {
       "mode": "point",
       "points": [
         [
-          1051.5,
-          354.0
+          1045.5,
+          357.0
         ],
         [
-          1066.5,
-          756.0
+          1072.5,
+          717.0
         ],
         [
-          1063.5,
-          1011.0
+          1060.5,
+          990.0
         ]
       ],
       "labels": [
@@ -46,9 +46,9 @@
     "target_width": null,
     "target_height": null,
     "ffmpeg_bin": "ffmpeg",
-    "segment_processing": false,
+    "segment_processing": true,
     "segment_length_seconds": 15.0,
-    "segment_overlap_seconds": 0.0
+    "segment_overlap_seconds": 5.0
   },
   "jobs": [
     {
