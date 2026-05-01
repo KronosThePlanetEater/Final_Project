@@ -40,6 +40,40 @@ DISPLAY_LABELS = {
     "audio_model_size": "Audio",
 }
 
+COLOR_PALETTE = [
+    "#1f77b4",
+    "#ff7f0e",
+    "#2ca02c",
+    "#d62728",
+    "#9467bd",
+    "#8c564b",
+    "#e377c2",
+    "#7f7f7f",
+    "#bcbd22",
+    "#17becf",
+]
+
+CATEGORY_COLORS = {
+    "low": "#2ca02c",
+    "low movement": "#2ca02c",
+    "medium": "#ff7f0e",
+    "medium movement": "#ff7f0e",
+    "high": "#d62728",
+    "high movement": "#d62728",
+    "small-tv": "#1f77b4",
+    "base-tv": "#9467bd",
+    "large-tv": "#8c564b",
+}
+
+MOTION_SORT_ORDER = {
+    "low": 0,
+    "low movement": 0,
+    "medium": 1,
+    "medium movement": 1,
+    "high": 2,
+    "high movement": 2,
+}
+
 AGGREGATE_FIELDNAMES = [
     "run_dir",
     "run_id",
@@ -119,6 +153,57 @@ def compact_model_label(value: object) -> Optional[str]:
     return label or text
 
 
+def infer_motion_level(*values: object) -> Optional[str]:
+    text = " ".join(str(value).lower() for value in values if value not in (None, ""))
+    if "low" in text:
+        return "low"
+    if "medium" in text or "med" in text:
+        return "medium"
+    if "high" in text:
+        return "high"
+    return None
+
+
+def category_sort_key(value: str) -> Tuple[int, str]:
+    normalized = value.strip().lower()
+    return (MOTION_SORT_ORDER.get(normalized, 100), normalized)
+
+
+def color_for_category(value: str, index: int) -> str:
+    normalized = value.strip().lower()
+    return CATEGORY_COLORS.get(normalized, COLOR_PALETTE[index % len(COLOR_PALETTE)])
+
+
+def normalize_category_value(row: Dict[str, object], key: str) -> Optional[str]:
+    if key == "motion_level":
+        value = row.get("motion_level") or infer_motion_level(
+            row.get("clip_id"),
+            row.get("display_label"),
+            row.get("run_id"),
+            row.get("run_dir"),
+        )
+    elif key in {"audio_model_size", "model_id", "model_size"}:
+        value = compact_model_label(row.get(key))
+    else:
+        value = row.get(key)
+    if value in (None, ""):
+        return None
+    return str(value)
+
+
+def choose_color_key(rows: List[Dict[str, object]], preferred_key: Optional[str] = None) -> Optional[str]:
+    candidates = []
+    if preferred_key:
+        candidates.append(preferred_key)
+    candidates.extend(["motion_level", "tracker_variant_label", "audio_model_size"])
+    for key in dict.fromkeys(candidates):
+        values = {normalize_category_value(row, key) for row in rows}
+        values.discard(None)
+        if len(values) >= 2:
+            return key
+    return None
+
+
 def format_numeric_outputs(row: Dict[str, object]) -> Dict[str, object]:
     formatted = dict(row)
     for column in NUMERIC_COLUMNS:
@@ -191,6 +276,12 @@ def derive_row(
     tracking_runtime_seconds = tracking.get("tracking_runtime_seconds")
     if tracking_runtime_seconds is None:
         tracking_runtime_seconds = tracking.get("pure_time")
+    motion_level = metadata.get("motion_level") or infer_motion_level(
+        clip_id,
+        tracking.get("video_path"),
+        run_id,
+        run_dir.name,
+    )
 
     return {
         "run_dir": str(run_dir.resolve()),
@@ -198,7 +289,7 @@ def derive_row(
         "job_id": metadata.get("job_id") or infer_job_id_from_run_dir(run_dir),
         "display_label": display_label,
         "clip_id": clip_id,
-        "motion_level": metadata.get("motion_level"),
+        "motion_level": motion_level,
         "tracker_variant_key": tracker_variant_key,
         "tracker_variant_label": tracker_variant_label,
         "audio_model_size": audio_model_size,
@@ -310,23 +401,53 @@ def write_placeholder_plot(output_path: str, title: str, message: str) -> None:
     plt.close()
 
 
-def scatter_plot(rows: List[Dict[str, object]], x_key: str, y_key: str, output_path: str) -> bool:
+def scatter_plot(
+    rows: List[Dict[str, object]],
+    x_key: str,
+    y_key: str,
+    output_path: str,
+    color_key: Optional[str] = "motion_level",
+) -> bool:
     points = [
-        (safe_float(row.get(x_key)), safe_float(row.get(y_key)))
+        (row, safe_float(row.get(x_key)), safe_float(row.get(y_key)))
         for row in rows
         if safe_float(row.get(x_key)) is not None and safe_float(row.get(y_key)) is not None
     ]
     if len(points) < 2:
         write_placeholder_plot(output_path, f"{display_label(x_key)} vs {display_label(y_key)}", "Insufficient data to plot this comparison.")
         return False
-    xs, ys = zip(*points)
-    plt.figure(figsize=(7, 5))
-    plt.scatter(xs, ys, alpha=0.8)
-    plt.xlabel(display_label(x_key))
-    plt.ylabel(display_label(y_key))
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=150)
-    plt.close()
+    plotted_rows = [row for row, _, _ in points]
+    selected_color_key = choose_color_key(plotted_rows, preferred_key=color_key)
+
+    fig, ax = plt.subplots(figsize=(7.5, 5))
+    if selected_color_key:
+        categories = sorted(
+            {normalize_category_value(row, selected_color_key) for row in plotted_rows if normalize_category_value(row, selected_color_key)},
+            key=category_sort_key,
+        )
+        for index, category in enumerate(categories):
+            xs = [x for row, x, _ in points if normalize_category_value(row, selected_color_key) == category]
+            ys = [y for row, _, y in points if normalize_category_value(row, selected_color_key) == category]
+            ax.scatter(
+                xs,
+                ys,
+                alpha=0.85,
+                label=category,
+                color=color_for_category(category, index),
+                edgecolors="white",
+                linewidths=0.4,
+            )
+        ax.legend(title=display_label(selected_color_key), fontsize=8, title_fontsize=9, loc="best")
+    else:
+        xs = [x for _, x, _ in points]
+        ys = [y for _, _, y in points]
+        ax.scatter(xs, ys, alpha=0.85, color=COLOR_PALETTE[0], edgecolors="white", linewidths=0.4)
+    ax.set_xlabel(display_label(x_key))
+    ax.set_ylabel(display_label(y_key))
+    ax.grid(alpha=0.25)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=150)
+    plt.close(fig)
     return True
 
 
@@ -421,8 +542,10 @@ def model_comparison_plot(rows: List[Dict[str, object]], metric_key: str, output
     means = [float(np.mean(grouped[model])) for model in models]
     plt.figure(figsize=(7, 5))
     ax = plt.gca()
-    bars = ax.bar(models, means)
+    colors = [color_for_category(model, index) for index, model in enumerate(models)]
+    bars = ax.bar(models, means, color=colors)
     plt.ylabel(display_label(metric_key))
+    ax.grid(axis="y", alpha=0.25)
     annotate_bar_values(ax, bars)
     plt.tight_layout()
     plt.savefig(output_path, dpi=150)
@@ -442,14 +565,16 @@ def categorical_mean_plot(rows: List[Dict[str, object]], category_key: str, metr
         write_placeholder_plot(output_path, f"{display_label(category_key)} vs {display_label(metric_key)}", "No valid runs contained this metric.")
         return False
 
-    categories = sorted(grouped)
+    categories = sorted(grouped, key=category_sort_key)
     means = [float(np.mean(grouped[category])) for category in categories]
     plt.figure(figsize=(8, 5))
     ax = plt.gca()
-    bars = ax.bar(categories, means)
+    colors = [color_for_category(category, index) for index, category in enumerate(categories)]
+    bars = ax.bar(categories, means, color=colors)
     plt.xlabel(display_label(category_key))
     plt.ylabel(display_label(metric_key))
     plt.xticks(rotation=30, ha="right")
+    ax.grid(axis="y", alpha=0.25)
     annotate_bar_values(ax, bars)
     plt.tight_layout()
     plt.savefig(output_path, dpi=150)

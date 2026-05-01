@@ -19,6 +19,7 @@ from path_layout import INPUT_ROOT, PROJECT_ROOT
 from ui_backend import (
     TRACKER_PRESETS,
     VALID_AUDIO_MODEL_SIZES,
+    create_crossclip_analysis_set,
     create_posthoc_analysis_set,
     enqueue_ui_job,
     enqueue_ui_jobs,
@@ -437,6 +438,7 @@ def ensure_session_defaults() -> None:
     st.session_state.setdefault("observed_job_id", None)
     st.session_state.setdefault("observed_job_status", None)
     st.session_state.setdefault("selected_posthoc_set_id", None)
+    st.session_state.setdefault("selected_crossclip_set_id", None)
     st.session_state.setdefault("segment_processing", False)
     st.session_state.setdefault("segment_length_seconds", 15.0)
     st.session_state.setdefault("segment_overlap_seconds", 2.0)
@@ -1268,8 +1270,15 @@ def render_results_panel(job_state: Optional[Dict[str, Any]]) -> None:
             render_image_file(image_path, caption=Path(image_path).name, container=image_cols[idx % 2])
 
 
-def render_posthoc_analysis_results(bundle: Optional[Dict[str, Any]]) -> None:
-    st.subheader("Post-Hoc Analysis")
+def format_clip_scope(metadata: Dict[str, Any]) -> str:
+    clip_ids = metadata.get("clip_ids") or []
+    if isinstance(clip_ids, list) and clip_ids:
+        return ", ".join(str(clip_id) for clip_id in clip_ids)
+    return str(metadata.get("clip_id") or "-")
+
+
+def render_posthoc_analysis_results(bundle: Optional[Dict[str, Any]], title: str = "Analysis Set") -> None:
+    st.subheader(title)
     if not bundle:
         st.info("Create or select an analysis set to inspect merged results.")
         return
@@ -1278,17 +1287,18 @@ def render_posthoc_analysis_results(bundle: Optional[Dict[str, Any]]) -> None:
     manifest = bundle.get("run_manifest", []) or []
     analysis_summary = bundle.get("analysis_summary", {}) or {}
     st.caption(
-        f"Set {bundle.get('set_id', '-')} | Clip {metadata.get('clip_id', '-')} | "
+        f"Set {bundle.get('set_id', '-')} | Clips {format_clip_scope(metadata)} | "
         f"Selected runs {metadata.get('selected_run_count', len(manifest))}"
     )
 
     tabs = st.tabs(["Summary", "Manifest", "Analytics"])
     with tabs[0]:
         metrics_cols = st.columns(4)
-        metrics_cols[0].metric("Clip", metadata.get("clip_id", "-"))
+        metrics_cols[0].metric("Clips", len(metadata.get("clip_ids") or [metadata.get("clip_id")]) if metadata else "-")
         metrics_cols[1].metric("Selected runs", metadata.get("selected_run_count", len(manifest)))
         metrics_cols[2].metric("Eligible runs", analysis_summary.get("eligible_run_count", "-"))
         metrics_cols[3].metric("Skipped runs", analysis_summary.get("skipped_run_count", "-"))
+        st.caption(f"Clip scope: {format_clip_scope(metadata)}")
         st.markdown("**Set Metadata**")
         st.json(metadata)
         st.markdown("**Analysis Summary**")
@@ -1300,13 +1310,15 @@ def render_posthoc_analysis_results(bundle: Optional[Dict[str, Any]]) -> None:
             for entry in manifest:
                 rows.append({
                     "Run": entry.get("display_label") or entry.get("run_id"),
+                    "Clip": entry.get("clip_id") or "-",
+                    "Motion": entry.get("motion_level") or "-",
                     "Tracker": entry.get("tracker_variant_label") or entry.get("tracker_variant_key"),
                     "Audio": entry.get("audio_model_size") or "-",
                     "Precision": entry.get("effective_audio_precision") or entry.get("requested_audio_precision") or "-",
                     "Job": entry.get("job_id") or "-",
                     "Run ID": entry.get("run_id") or "-",
                 })
-            render_html_table(rows, columns=["Run", "Tracker", "Audio", "Precision", "Job", "Run ID"])
+            render_html_table(rows, columns=["Run", "Clip", "Motion", "Tracker", "Audio", "Precision", "Job", "Run ID"])
         else:
             st.info("No run manifest entries were found for this analysis set.")
 
@@ -1323,54 +1335,119 @@ def render_posthoc_analysis_results(bundle: Optional[Dict[str, Any]]) -> None:
 
 def render_posthoc_analysis_panel() -> None:
     grouped_runs = list_posthoc_runs_by_clip()
-    recent_set_ids = get_recent_analysis_set_ids(limit=20)
+    per_clip_tab, cross_clip_tab = st.tabs(["Per-Clip Analysis", "Cross-Clip Analysis"])
 
-    if grouped_runs:
-        clip_id = st.selectbox(
-            "Clip for merged analysis",
-            list(grouped_runs.keys()),
-            key="posthoc_clip_selector",
-            help="Only runs from the same clip can be merged into one post-hoc analysis set.",
-        )
-        clip_runs = grouped_runs.get(clip_id, [])
-        option_map = {
-            f"{entry.get('display_label') or entry.get('run_id')} [{entry.get('job_id') or 'manual'} / {entry.get('run_id')}]": entry
-            for entry in clip_runs
-        }
-        selected_labels = st.multiselect(
-            "Completed runs to merge",
-            list(option_map.keys()),
-            key="posthoc_run_selector",
-            help="Select previously completed runs for the same clip, then build one merged analysis set without rerunning tracking or audio.",
-        )
-        if compat_button("Create post-hoc analysis set", disabled=len(selected_labels) == 0, use_container_width=True):
-            try:
-                result = create_posthoc_analysis_set([option_map[label] for label in selected_labels])
-                st.session_state["selected_posthoc_set_id"] = result["set_id"]
-                st.success(f"Created analysis set {result['set_id']}")
-                rerun_app()
-            except Exception as exc:
-                st.error(str(exc))
-    else:
-        st.info("No eligible completed runs were found for post-hoc merging yet.")
+    with per_clip_tab:
+        st.caption("Compare completed runs for one clip only. Use this for tracker/model comparisons within a single video.")
+        recent_set_ids = get_recent_analysis_set_ids(limit=20, source_mode="posthoc_merge")
 
-    selected_set_id = st.session_state.get("selected_posthoc_set_id")
-    available_set_ids = recent_set_ids
-    if available_set_ids:
-        default_index = 0
-        if selected_set_id in available_set_ids:
-            default_index = available_set_ids.index(selected_set_id)
-        selected_set_id = st.selectbox(
-            "Recent analysis sets",
-            available_set_ids,
-            index=default_index,
-            key="posthoc_set_selector",
-            help="Inspect a previously created merged analysis set without rerunning any model stages.",
-        )
-        st.session_state["selected_posthoc_set_id"] = selected_set_id
-        render_posthoc_analysis_results(load_analysis_set(selected_set_id))
-    else:
-        render_posthoc_analysis_results(None)
+        if grouped_runs:
+            clip_id = st.selectbox(
+                "Clip for per-clip analysis",
+                list(grouped_runs.keys()),
+                key="posthoc_clip_selector",
+                help="Only runs from the same clip can be merged into one per-clip analysis set.",
+            )
+            clip_runs = grouped_runs.get(clip_id, [])
+            option_map = {
+                f"{entry.get('display_label') or entry.get('run_id')} [{entry.get('job_id') or 'manual'} / {entry.get('run_id')}]": entry
+                for entry in clip_runs
+            }
+            selected_labels = st.multiselect(
+                "Completed runs to merge",
+                list(option_map.keys()),
+                key="posthoc_run_selector",
+                help="Select previously completed runs for the same clip, then build one merged analysis set without rerunning tracking or audio.",
+            )
+            if compat_button("Create per-clip analysis set", disabled=len(selected_labels) == 0, use_container_width=True):
+                try:
+                    result = create_posthoc_analysis_set([option_map[label] for label in selected_labels])
+                    st.session_state["selected_posthoc_set_id"] = result["set_id"]
+                    st.success(f"Created per-clip analysis set {result['set_id']}")
+                    rerun_app()
+                except Exception as exc:
+                    st.error(str(exc))
+        else:
+            st.info("No eligible completed runs were found for per-clip merging yet.")
+
+        selected_set_id = st.session_state.get("selected_posthoc_set_id")
+        if recent_set_ids:
+            default_index = recent_set_ids.index(selected_set_id) if selected_set_id in recent_set_ids else 0
+            selected_set_id = st.selectbox(
+                "Recent per-clip analysis sets",
+                recent_set_ids,
+                index=default_index,
+                key="posthoc_set_selector",
+                help="Inspect a previously created per-clip analysis set without rerunning any model stages.",
+            )
+            st.session_state["selected_posthoc_set_id"] = selected_set_id
+            render_posthoc_analysis_results(load_analysis_set(selected_set_id), title="Per-Clip Analysis Results")
+        else:
+            render_posthoc_analysis_results(None, title="Per-Clip Analysis Results")
+
+    with cross_clip_tab:
+        st.caption("Combine completed runs across multiple clips. Use this for the final low/medium/high motion research aggregate.")
+        recent_cross_set_ids = get_recent_analysis_set_ids(limit=20, source_mode="posthoc_cross_clip_merge")
+
+        if grouped_runs and len(grouped_runs) >= 2:
+            clip_options = list(grouped_runs.keys())
+            selected_clips = st.multiselect(
+                "Clips to include",
+                clip_options,
+                default=clip_options if len(clip_options) <= 3 else [],
+                key="crossclip_clip_selector",
+                help="Choose at least two clips. All eligible completed runs from the selected clips will be included.",
+            )
+            selected_runs = [
+                entry
+                for clip_id in selected_clips
+                for entry in grouped_runs.get(clip_id, [])
+            ]
+            if selected_runs:
+                st.caption(f"Selected clips contain {len(selected_runs)} eligible completed run artifacts.")
+                preview_rows = [
+                    {
+                        "Clip": entry.get("clip_id"),
+                        "Run": entry.get("display_label") or entry.get("run_id"),
+                        "Tracker": entry.get("tracker_variant_label") or entry.get("tracker_variant_key"),
+                        "Audio": entry.get("audio_model_size") or "-",
+                        "Job": entry.get("job_id") or "-",
+                    }
+                    for entry in selected_runs[:100]
+                ]
+                render_html_table(preview_rows, columns=["Clip", "Run", "Tracker", "Audio", "Job"], max_rows=100)
+            distinct_selected_clips = {entry.get("clip_id") for entry in selected_runs}
+            if compat_button(
+                "Create cross-clip analysis set",
+                disabled=len(distinct_selected_clips) < 2,
+                use_container_width=True,
+            ):
+                try:
+                    result = create_crossclip_analysis_set(selected_runs)
+                    st.session_state["selected_crossclip_set_id"] = result["set_id"]
+                    st.success(f"Created cross-clip analysis set {result['set_id']}")
+                    rerun_app()
+                except Exception as exc:
+                    st.error(str(exc))
+        elif grouped_runs:
+            st.info("Cross-clip analysis needs completed runs from at least two different clips.")
+        else:
+            st.info("No eligible completed runs were found for cross-clip analysis yet.")
+
+        selected_cross_set_id = st.session_state.get("selected_crossclip_set_id")
+        if recent_cross_set_ids:
+            default_index = recent_cross_set_ids.index(selected_cross_set_id) if selected_cross_set_id in recent_cross_set_ids else 0
+            selected_cross_set_id = st.selectbox(
+                "Recent cross-clip analysis sets",
+                recent_cross_set_ids,
+                index=default_index,
+                key="crossclip_set_selector",
+                help="Inspect a previous cross-clip research aggregate without rerunning any model stages.",
+            )
+            st.session_state["selected_crossclip_set_id"] = selected_cross_set_id
+            render_posthoc_analysis_results(load_analysis_set(selected_cross_set_id), title="Cross-Clip Analysis Results")
+        else:
+            render_posthoc_analysis_results(None, title="Cross-Clip Analysis Results")
 
 
 def main() -> None:

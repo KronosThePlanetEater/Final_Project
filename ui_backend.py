@@ -25,7 +25,7 @@ from audio_pipeline import create_audio_aligned_segment, run_audio_pipeline
 from dataset_prep import prepare_clip
 from evaluation import evaluate_run
 from path_layout import INPUT_ROOT, OUTPUT_ROOT, ensure_standard_directories, resolve_existing_path
-from posthoc_analysis import create_posthoc_analysis_set, discover_mergeable_runs, get_recent_analysis_set_ids, group_runs_by_clip, load_analysis_set
+from posthoc_analysis import create_crossclip_analysis_set, create_posthoc_analysis_set, discover_mergeable_runs, get_recent_analysis_set_ids, group_runs_by_clip, load_analysis_set
 from progress_utils import iso_utc_now
 from run_experiments import materialize_tracking_outputs
 from segmented_pipeline import run_segmented_pipeline, validate_segment_settings
@@ -853,6 +853,10 @@ def run_queue_until_empty() -> None:
 
 def list_posthoc_runs_by_clip() -> Dict[str, List[Dict[str, Any]]]:
     return group_runs_by_clip(discover_mergeable_runs())
+
+
+def list_posthoc_runs() -> List[Dict[str, Any]]:
+    return discover_mergeable_runs()
 
 
 def draw_selection_overlay(frame_rgb: np.ndarray, selection: Dict[str, Any]) -> np.ndarray:

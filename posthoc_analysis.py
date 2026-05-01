@@ -46,6 +46,10 @@ def build_analysis_set_id(clip_id: str) -> str:
     return f"{stamp}-{slugify(clip_id)}"
 
 
+def build_cross_clip_set_id() -> str:
+    return build_analysis_set_id("cross-clip")
+
+
 def infer_job_id_from_run_dir(run_dir: Path) -> Optional[str]:
     parts = list(run_dir.parts)
     if "ui_runs" in parts:
@@ -221,24 +225,17 @@ def resolve_selected_runs(selected_runs: List[Any]) -> List[Dict[str, Any]]:
     return resolved
 
 
-def create_posthoc_analysis_set(
-    selected_runs: List[Any],
+def write_analysis_set(
+    resolved_runs: List[Dict[str, Any]],
+    clip_id: str,
+    clip_ids: List[str],
+    analysis_source_mode: str,
+    merge_scope: str,
     output_dir: Optional[str] = None,
     set_id: Optional[str] = None,
     progress_callback=None,
 ) -> Dict[str, Any]:
-    ensure_standard_directories()
-    ensure_dir(ANALYSIS_SET_ROOT)
-    resolved_runs = resolve_selected_runs(selected_runs)
-    if not resolved_runs:
-        raise ValueError("At least one completed run must be selected.")
-
-    clip_ids = {str(entry.get("clip_id") or "") for entry in resolved_runs}
-    if len(clip_ids) != 1:
-        raise ValueError("Post-hoc analysis sets may only merge runs from the same clip.")
-    clip_id = next(iter(clip_ids))
-
-    chosen_set_id = set_id or build_analysis_set_id(clip_id)
+    chosen_set_id = set_id or (build_cross_clip_set_id() if merge_scope == "cross_clip" else build_analysis_set_id(clip_id))
     set_root = resolve_output_path(output_dir, f"analysis_sets/{chosen_set_id}").resolve()
     ensure_dir(set_root)
     analysis_dir = set_root / "analysis"
@@ -259,8 +256,10 @@ def create_posthoc_analysis_set(
     metadata = {
         "set_id": chosen_set_id,
         "clip_id": clip_id,
+        "clip_ids": clip_ids,
         "created_at": iso_utc_now(),
-        "analysis_source_mode": "posthoc_merge",
+        "analysis_source_mode": analysis_source_mode,
+        "merge_scope": merge_scope,
         "selected_run_count": len(resolved_runs),
         "selected_run_ids": [entry.get("run_id") for entry in resolved_runs],
         "selected_job_ids": sorted({entry.get("job_id") for entry in resolved_runs if entry.get("job_id")}),
@@ -276,6 +275,7 @@ def create_posthoc_analysis_set(
     return {
         "set_id": chosen_set_id,
         "clip_id": clip_id,
+        "clip_ids": clip_ids,
         "set_dir": str(set_root),
         "metadata_path": str(metadata_path),
         "run_manifest_path": str(run_manifest_path),
@@ -283,7 +283,62 @@ def create_posthoc_analysis_set(
     }
 
 
-def get_recent_analysis_set_ids(limit: int = 20) -> List[str]:
+def create_posthoc_analysis_set(
+    selected_runs: List[Any],
+    output_dir: Optional[str] = None,
+    set_id: Optional[str] = None,
+    progress_callback=None,
+) -> Dict[str, Any]:
+    ensure_standard_directories()
+    ensure_dir(ANALYSIS_SET_ROOT)
+    resolved_runs = resolve_selected_runs(selected_runs)
+    if not resolved_runs:
+        raise ValueError("At least one completed run must be selected.")
+
+    clip_ids = sorted({str(entry.get("clip_id") or "") for entry in resolved_runs})
+    if len(clip_ids) != 1:
+        raise ValueError("Per-clip post-hoc analysis sets may only merge runs from the same clip.")
+    clip_id = clip_ids[0]
+    return write_analysis_set(
+        resolved_runs=resolved_runs,
+        clip_id=clip_id,
+        clip_ids=clip_ids,
+        analysis_source_mode="posthoc_merge",
+        merge_scope="same_clip",
+        output_dir=output_dir,
+        set_id=set_id,
+        progress_callback=progress_callback,
+    )
+
+
+def create_crossclip_analysis_set(
+    selected_runs: List[Any],
+    output_dir: Optional[str] = None,
+    set_id: Optional[str] = None,
+    progress_callback=None,
+) -> Dict[str, Any]:
+    ensure_standard_directories()
+    ensure_dir(ANALYSIS_SET_ROOT)
+    resolved_runs = resolve_selected_runs(selected_runs)
+    if not resolved_runs:
+        raise ValueError("At least one completed run must be selected.")
+
+    clip_ids = sorted({str(entry.get("clip_id") or "") for entry in resolved_runs if entry.get("clip_id")})
+    if len(clip_ids) < 2:
+        raise ValueError("Cross-clip analysis requires runs from at least two different clips. Use Per-Clip Analysis for same-clip comparisons.")
+    return write_analysis_set(
+        resolved_runs=resolved_runs,
+        clip_id="multiple_clips",
+        clip_ids=clip_ids,
+        analysis_source_mode="posthoc_cross_clip_merge",
+        merge_scope="cross_clip",
+        output_dir=output_dir,
+        set_id=set_id,
+        progress_callback=progress_callback,
+    )
+
+
+def get_recent_analysis_set_ids(limit: int = 20, source_mode: Optional[str] = None) -> List[str]:
     ensure_standard_directories()
     ensure_dir(ANALYSIS_SET_ROOT)
     sets = []
@@ -292,6 +347,8 @@ def get_recent_analysis_set_ids(limit: int = 20) -> List[str]:
             with open(metadata_path, "r", encoding="utf-8") as handle:
                 metadata = json.load(handle)
         except Exception:
+            continue
+        if source_mode and metadata.get("analysis_source_mode") != source_mode:
             continue
         sets.append((metadata.get("created_at") or "", metadata_path.parent.name))
     sets.sort(reverse=True)
@@ -321,7 +378,8 @@ def load_analysis_set(set_id: str) -> Dict[str, Any]:
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Create a post-hoc merged analysis set from completed runs.")
     parser.add_argument("--run-dir", action="append", default=[], help="Run directory to include. Provide multiple times to merge multiple runs.")
-    parser.add_argument("--clip-id", default=None, help="Optional clip id to include all discovered completed runs for that clip when --run-dir is omitted.")
+    parser.add_argument("--clip-id", action="append", default=[], help="Optional clip id to include all discovered completed runs for that clip when --run-dir is omitted. Repeat for cross-clip analysis.")
+    parser.add_argument("--cross-clip", action="store_true", help="Allow selected runs from multiple clips and create a cross-clip research aggregate.")
     parser.add_argument("--output-dir", default=None, help="Optional output directory for the analysis set. Defaults to output/analysis_sets/<set_id>.")
     parser.add_argument("--set-id", default=None, help="Optional explicit analysis set id.")
     return parser
@@ -334,11 +392,15 @@ def main() -> None:
     if args.run_dir:
         selected = args.run_dir
     elif args.clip_id:
-        selected = [entry for entry in discover_mergeable_runs() if entry.get("clip_id") == args.clip_id]
+        selected_clip_ids = set(args.clip_id)
+        selected = [entry for entry in discover_mergeable_runs() if entry.get("clip_id") in selected_clip_ids]
     else:
         parser.error("Provide at least one --run-dir or a --clip-id.")
 
-    result = create_posthoc_analysis_set(selected, output_dir=args.output_dir, set_id=args.set_id)
+    if args.cross_clip:
+        result = create_crossclip_analysis_set(selected, output_dir=args.output_dir, set_id=args.set_id)
+    else:
+        result = create_posthoc_analysis_set(selected, output_dir=args.output_dir, set_id=args.set_id)
     print(json.dumps(result, indent=2))
 
 
