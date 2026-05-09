@@ -477,7 +477,7 @@ def mark_job_failed(job_id: str, stage_name: str, exc: Exception) -> Dict[str, A
         return save_job_state(job_id, state)
 
 
-def get_recent_job_ids(limit: int = 10) -> List[str]:
+def get_recent_job_ids(limit: Optional[int] = None) -> List[str]:
     ensure_ui_dirs()
     jobs = []
     for path in JOB_ROOT.glob("*/job_state.json"):
@@ -487,7 +487,10 @@ def get_recent_job_ids(limit: int = 10) -> List[str]:
             continue
         jobs.append((state.get("started_at") or "", path.parent.name))
     jobs.sort(reverse=True)
-    return [job_id for _, job_id in jobs[:limit]]
+    job_ids = [job_id for _, job_id in jobs]
+    if limit is None:
+        return job_ids
+    return job_ids[:limit]
 
 
 def get_latest_job_state() -> Optional[Dict[str, Any]]:
@@ -497,7 +500,7 @@ def get_latest_job_state() -> Optional[Dict[str, Any]]:
 
 
 def get_active_job_state() -> Optional[Dict[str, Any]]:
-    for job_id in get_recent_job_ids(limit=25):
+    for job_id in get_recent_job_ids():
         state = load_job_state(job_id)
         if state and state.get("status") == "running":
             return state

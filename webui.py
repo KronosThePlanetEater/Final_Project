@@ -1464,7 +1464,7 @@ def main() -> None:
         start_queue_worker_if_needed()
         queue_state = get_queue_state()
         active_job = get_active_job_state()
-    recent_job_ids = get_recent_job_ids(limit=20)
+    recent_job_ids = get_recent_job_ids()
 
     header_cols = st.columns([1.5, 1.0])
     if videos:
