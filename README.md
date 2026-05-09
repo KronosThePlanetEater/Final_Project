@@ -16,6 +16,13 @@ Local pipeline for:
 - `sam-audio/`: optional project-local SAM-Audio source checkout
 - `tools/ffmpeg/`: optional repo-local ffmpeg binaries for Windows and Linux
 
+## External Artifacts
+Large artifacts that are not convenient to keep directly in Git are available in this Rutgers Box folder:
+
+- https://rutgers.box.com/s/i2tkqmj9vd429yup5v41tsmd1m01yqop
+
+This folder is intended for large project assets such as SAM-Audio model folders and saved run outputs. Hugging Face authentication is still handled separately with `hf auth login`; do not commit Hugging Face tokens to this repository or include them in shared documentation. If this Box folder currently contains a token file, remove it and revoke that token before sharing the folder more broadly.
+
 ## Before You Start
 - Do **not** copy `.venv` between Windows and Linux.
 - If you move the project to another machine, copy the project files and recreate `.venv` on that machine.
