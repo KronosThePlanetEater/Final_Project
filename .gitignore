@@ -6,5 +6,8 @@ output/*
 *.pt
 *.pth
 *.ckpt
+!checkpoints/*.pt
+!checkpoints/*.pth
+!checkpoints/*.ckpt
 *.safetensors
 .env
