@@ -20,7 +20,7 @@ Local pipeline for:
 
 - https://rutgers.box.com/s/i2tkqmj9vd429yup5v41tsmd1m01yqop
 
-This folder is intended for large project assets such as SAM-Audio model folders and saved run outputs. Hugging Face authentication is still handled separately with `hf auth login`
+This folder is intended for large project assets such as SAM-Audio model folders and saved run outputs. Hugging Face authentication token
 
 ## Before You Start
 - Do **not** copy `.venv` between Windows and Linux.
